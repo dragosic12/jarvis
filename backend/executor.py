@@ -501,8 +501,19 @@ def _handle_briefing() -> str:
 
 
 def _handle_question(question: str) -> dict:
-    """Responder preguntas usando Claude CLI con Haiku (sin API key, usa OAuth Pro)."""
+    """Responder preguntas. Primero Gemini (libera el limite de Claude); si falla,
+    fallback a Claude CLI con Haiku (OAuth Pro)."""
     import os
+    # 1) Gemini (rapido y no consume el limite de Claude)
+    try:
+        from gemini import ask_gemini
+        ans = ask_gemini(question)
+        if ans:
+            return {"success": True, "message": ans,
+                    "data": {"type": "spoken_response", "text": ans, "question": question}}
+    except Exception:
+        pass
+    # 2) Fallback: Claude CLI (Haiku)
     env = {k: v for k, v in os.environ.items()}
     env.pop("ANTHROPIC_API_KEY", None)  # Forzar OAuth, no API key
     env["TERM"] = "dumb"
