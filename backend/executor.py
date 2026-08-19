@@ -362,13 +362,15 @@ def _pc_ensure_task():
     global _pc_task_ready
     if _pc_task_ready:
         return
+    # RunLevel Limited (integridad NORMAL): por UIPI de Windows, un proceso elevado
+    # no puede enviar teclas (SendKeys/keybd_event) a ventanas normales. Registramos
+    # siempre con -Force para corregir una tarea previa que estuviera elevada.
     ps = (
-        "if(-not(Get-ScheduledTask -TaskName 'JarvisRun' -ErrorAction SilentlyContinue)){"
         "$p=Join-Path $env:USERPROFILE 'jarvis_cmd.ps1';"
         "$a=New-ScheduledTaskAction -Execute 'powershell.exe' "
         "-Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"'+$p+'\"');"
-        "$pr=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest;"
-        "Register-ScheduledTask -TaskName 'JarvisRun' -Action $a -Principal $pr -Force | Out-Null}"
+        "$pr=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited;"
+        "Register-ScheduledTask -TaskName 'JarvisRun' -Action $a -Principal $pr -Force | Out-Null"
     )
     try:
         _pc_run(ps, timeout=20)

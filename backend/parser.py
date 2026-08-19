@@ -102,7 +102,7 @@ def _say_intent(raw, context, msg):
 _USAGE_KW = re.compile(r"\b(uso|usado|gasto|porcentaje|por ?ciento|queda|quedan|"
                        r"gastad\w*|consumid\w*|limite|llevo|gastando|restante|"
                        r"renue\w*|renova\w*|reinici\w*|resetea\w*)\b")
-_CLAUDE_RE = re.compile(r"\bcl[oa]u?d[aeo]?\b")   # claude/claud/cloud/clode (fallos de Whisper)
+_CLAUDE_RE = re.compile(r"\bcl[oa]u?d\w*\b")   # claude/claud/cloud/clode/claudie/claudia (fallos de Whisper)
 _USAGE_PHRASES = re.compile(
     r"(uso semanal|limite semanal|porcentaje semanal|sesion actual|"
     r"cuant[oa] (me )?queda (de )?(la )?sesion|cuant[oa] (me )?queda (esta )?semana|"
