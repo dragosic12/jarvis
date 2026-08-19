@@ -102,7 +102,7 @@ def _say_intent(raw, context, msg):
 _USAGE_KW = re.compile(r"\b(uso|usado|gasto|porcentaje|por ?ciento|queda|quedan|"
                        r"gastad\w*|consumid\w*|limite|llevo|gastando|restante|"
                        r"renue\w*|renova\w*|reinici\w*|resetea\w*)\b")
-_CLAUDE_RE = re.compile(r"\bcl[oa]u?d\w*\b")   # claude/claud/cloud/clode/claudie/claudia (fallos de Whisper)
+_CLAUDE_RE = re.compile(r"\b(cl[oa]u?d\w*|clave)\b")   # claude y sus errores: claud/cloud/claudie/claudia/clave
 _USAGE_PHRASES = re.compile(
     r"(uso semanal|limite semanal|porcentaje semanal|sesion actual|"
     r"cuant[oa] (me )?queda (de )?(la )?sesion|cuant[oa] (me )?queda (esta )?semana|"
@@ -178,15 +178,17 @@ def _claude_intent(raw, context, atype, val):
             "context": context, "silent": False}
 
 
+_CLW = r"(?:claude|claud|claudio|claudie|claudi|clau|cloud|clod)"  # claude y sus mishears
+
 def _match_claude(text, raw, context):
     """Hablar con Claude por voz. 'dile/pidele a claude que...' = agente (hace tareas);
     'preguntale a claude...' / 'claude ...' = conversacion con memoria de hilo."""
-    m = re.match(r"^(?:dile a claude que|pidele a claude que|dile a clau que|"
-                 r"encargale a claude que) (.+)$", text)
+    m = re.match(r"^(?:dile a %s que|pidele a %s que|encargale a %s que) (.+)$"
+                 % (_CLW, _CLW, _CLW), text)
     if m:
         return _claude_intent(raw, context, "claude_agent", m.group(1))
-    m = re.match(r"^(?:preguntale a claude|pregunta a claude|preguntale a clau|"
-                 r"pregunta a clau|habla con claude|claude|clau) (.+)$", text)
+    m = re.match(r"^(?:preguntale a %s|pregunta a %s|habla con %s|%s) (.+)$"
+                 % (_CLW, _CLW, _CLW, _CLW), text)
     if m:
         return _claude_intent(raw, context, "claude_chat", m.group(1))
     return None
@@ -635,10 +637,10 @@ def _match_alarm_in(text, raw, context):
 
 def _match_reminder(text, raw, context):
     """'recuerdame X en 10 minutos' / 'recuerdame X a las 6' -> alarma/timer con etiqueta."""
-    if not re.match(r"^recuerda(?:me|te)?\b", text):
+    if not re.match(r"^recuerda(?:\s*(?:me|te))?\b", text):
         return None
     from urllib.parse import quote
-    body = re.sub(r"^recuerda(?:me|te)?\s+(?:que\s+)?", "", text).strip()
+    body = re.sub(r"^recuerda(?:\s*(?:me|te))?\s+(?:que\s+)?", "", text).strip()
     if not body:
         return None
     # Relativo: "... en / dentro de <duracion>"
