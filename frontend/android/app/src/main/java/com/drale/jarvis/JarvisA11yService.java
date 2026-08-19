@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Intent;
 import android.graphics.Path;
+import android.graphics.Rect;
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
@@ -30,12 +32,18 @@ public class JarvisA11yService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        if (event == null) return;
+        int type = event.getEventType();
+
         // Rastrea la app en primer plano (para gestos que cambian segun la app)
-        if (event != null && event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             CharSequence p = event.getPackageName();
             if (p != null) {
                 String s = p.toString();
                 if (!s.contains("systemui") && !s.contains("inputmethod") && !s.equals("android")) {
+                    if (RoutineRecorder.isRecording() && !s.equals(curPkg)) {
+                        RoutineRecorder.logAppChange(s);
+                    }
                     curPkg = s;
                 }
             }
@@ -46,6 +54,65 @@ public class JarvisA11yService extends AccessibilityService {
         if (armSendUntil > SystemClock.uptimeMillis() && "com.whatsapp".equals(curPkg)) {
             if (tryClickSend()) armSendUntil = 0;
         }
+
+        // --- FASE 1: grabador de rutinas ------------------------------------
+        // typeViewClicked/typeViewLongClicked/typeViewScrolled llegan aqui para
+        // TODAS las apps del sistema (asi lo exige a11y_config.xml para poder
+        // capturarlos cuando SI se este grabando), asi que el filtro por
+        // "isRecording()" tiene que ser lo PRIMERO y lo mas barato posible para
+        // no afectar al rendimiento cuando no se esta grabando (caso normal).
+        if (RoutineRecorder.isRecording()
+                && (type == AccessibilityEvent.TYPE_VIEW_CLICKED
+                    || type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED
+                    || type == AccessibilityEvent.TYPE_VIEW_SCROLLED)) {
+            try {
+                recordRoutineEvent(event, type);
+            } catch (Exception ignored) { }
+        }
+    }
+
+    /** Registra un click/long-click/scroll en la rutina que se esta grabando.
+     *  Nunca graba texto tecleado (no escuchamos typeViewTextChanged) ni campos
+     *  de contrasena (isPassword()), y se salta apps sensibles (banca, gestores
+     *  de contrasenas) por completo. */
+    private void recordRoutineEvent(AccessibilityEvent event, int type) {
+        if (RoutineRecorder.isSensitiveApp(curPkg)) return;
+
+        AccessibilityNodeInfo src = event.getSource();
+        if (src == null) return;
+        try {
+            if (src.isPassword()) return; // nunca campos de contrasena
+
+            Rect bounds = new Rect();
+            src.getBoundsInScreen(bounds);
+            int cx = bounds.centerX(), cy = bounds.centerY();
+            String viewId = src.getViewIdResourceName();
+            CharSequence descCs = src.getContentDescription();
+            String desc = descCs != null ? descCs.toString() : null;
+
+            if (type == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                RoutineRecorder.logEvent("click", curPkg, viewId, desc, cx, cy, null);
+            } else if (type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) {
+                RoutineRecorder.logEvent("long_click", curPkg, viewId, desc, cx, cy, null);
+            } else if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+                RoutineRecorder.logEvent("scroll", curPkg, viewId, desc, cx, cy, scrollDirection(event));
+            }
+        } finally {
+            try { src.recycle(); } catch (Exception ignored) { }
+        }
+    }
+
+    /** Direccion aproximada del scroll ('up'/'down'/'left'/'right'/'unknown'). */
+    private String scrollDirection(AccessibilityEvent event) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                int dx = event.getScrollDeltaX();
+                int dy = event.getScrollDeltaY();
+                if (dx == 0 && dy == 0) return "unknown";
+                return Math.abs(dy) >= Math.abs(dx) ? (dy > 0 ? "down" : "up") : (dx > 0 ? "right" : "left");
+            }
+        } catch (Exception ignored) { }
+        return "unknown";
     }
 
     public static String currentPackage() { return curPkg; }

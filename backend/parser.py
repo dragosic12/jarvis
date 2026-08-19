@@ -383,6 +383,23 @@ def _match_car(text, raw, context):
     return _dev_intent(raw, context, "jarvis-car://on", "Modo coche on")
 
 
+def _match_routine(text, raw, context):
+    """Grabador de rutinas (FASE 1): 'aprende esta rutina' / 'graba una rutina'
+    (empezar a grabar), 'termina la rutina' / 'guarda la rutina' (parar y
+    guardar), 'lista mis rutinas' (cuantas hay). La captura y el guardado
+    ocurren enteramente en el movil (JarvisA11yService + RoutineRecorder);
+    aqui solo se traduce la frase al esquema jarvis-routine://."""
+    if re.search(r"\b(aprende|aprender)\s+(esta\s+)?rutina\b", text) \
+       or re.search(r"\b(graba|grabar|empieza a grabar|empezar a grabar)\s+(esta\s+|una\s+)?rutina\b", text):
+        return _dev_intent(raw, context, "jarvis-routine://record-start", "Empezar a grabar rutina")
+    if re.search(r"\b(termina|terminar|para|parar|deja|dejar)\s+(de\s+grabar\s+)?(la\s+)?rutina\b", text) \
+       or re.search(r"\bguarda(r)?\s+(la\s+)?rutina\b", text):
+        return _dev_intent(raw, context, "jarvis-routine://record-stop", "Terminar y guardar rutina")
+    if re.search(r"\b(lista|listar|cuantas)\s+(mis\s+)?rutinas?\b", text):
+        return _dev_intent(raw, context, "jarvis-routine://list", "Listar rutinas", category="info", silent=False)
+    return None
+
+
 def _match_wa_audio(text, raw, context):
     # "envia/manda/graba un audio (o nota de voz) a X"
     m = re.match(
@@ -781,7 +798,7 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     for matcher in (_match_pc_open, _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
-                    _match_car, _match_wa_audio,
+                    _match_car, _match_routine, _match_wa_audio,
                     _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)

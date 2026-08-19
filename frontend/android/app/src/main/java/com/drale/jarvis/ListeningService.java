@@ -497,6 +497,10 @@ public class ListeningService extends Service {
             speak(on ? "Modo conversacion activado. Dime." : "Vale, hasta luego.");
             return;
         }
+        if (url.startsWith("jarvis-routine://")) {
+            handleRoutine(url.substring("jarvis-routine://".length()));
+            return;
+        }
         // Auto-enviar WhatsApp: si abrimos un chat con texto ya escrito, arma el
         // servicio de accesibilidad para que pulse "Enviar" al cargar la conversacion.
         // (Requiere que el usuario tenga activado el servicio de accesibilidad de Jarvis.)
@@ -509,6 +513,31 @@ public class ListeningService extends Service {
         t.putExtra("url", url);
         t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
         try { startActivity(t); } catch (Exception ignored) {}
+    }
+
+    // ---- Grabador de rutinas (FASE 1) ----
+
+    /** "aprende esta rutina" / "graba una rutina" (record-start), "termina la
+     *  rutina" / "guarda la rutina" (record-stop), "lista mis rutinas" (list).
+     *  La captura la hace JarvisA11yService; aqui solo se arma/desarma y se
+     *  guarda/consulta lo grabado (RoutineRecorder), todo en el propio movil. */
+    private void handleRoutine(String action) {
+        if (!JarvisA11yService.isReady()) {
+            speak("Necesito el servicio de accesibilidad Jarvis Gestos activado para grabar rutinas.");
+            return;
+        }
+        if (action.startsWith("record-start")) {
+            RoutineRecorder.startRecording();
+            speak("Vale, grabando la rutina. Dime termina la rutina cuando acabes.");
+        } else if (action.startsWith("record-stop")) {
+            int n = RoutineRecorder.stopRecording(this);
+            if (n <= 0) speak("No he grabado ningun paso, no he guardado nada.");
+            else speak("Rutina guardada con " + n + " " + (n == 1 ? "paso" : "pasos") + ".");
+        } else if (action.startsWith("list")) {
+            int n = RoutineRecorder.countRoutines(this);
+            if (n <= 0) speak("Todavia no tienes ninguna rutina guardada.");
+            else speak("Tienes " + n + " " + (n == 1 ? "rutina guardada" : "rutinas guardadas") + ".");
+        }
     }
 
     private void setVolume(String path) {
