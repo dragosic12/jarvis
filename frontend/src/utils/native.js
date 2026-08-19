@@ -5,6 +5,17 @@ export function isNativeApp() {
   return !!(cap && cap.isNativePlatform && cap.isNativePlatform())
 }
 
+// Version instalada de la APK (versionName). null en navegador.
+export async function getAppVersion() {
+  if (!isNativeApp()) return null
+  try {
+    const info = await window.Capacitor?.Plugins?.App?.getInfo()
+    return info?.version || null
+  } catch {
+    return null
+  }
+}
+
 // Pide el permiso de camara (modo gestos). En navegador no hace falta (getUserMedia pregunta).
 export async function requestCameraPermission() {
   if (!isNativeApp()) return true

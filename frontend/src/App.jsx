@@ -7,6 +7,8 @@ import CommandList from './components/CommandList'
 import TextInput from './components/TextInput'
 import LogPanel from './components/LogPanel'
 import GestureMode from './components/GestureMode'
+import { getAppVersion } from './utils/native'
+import { API_BASE } from './config'
 
 const TABS = [
   { id: 'voice', label: 'Voz' },
@@ -22,6 +24,14 @@ export default function App() {
   // La escucha continua se recuerda: si estaba activada, sigue activa al reabrir
   const [continuous, setContinuous] = useState(() => localStorage.getItem('jarvis_continuous') === '1')
   const [installPrompt, setInstallPrompt] = useState(null)
+  const [ver, setVer] = useState(null)        // version instalada de la APK
+  const [latest, setLatest] = useState(null)  // ultima version publicada
+
+  useEffect(() => {
+    getAppVersion().then(setVer)
+    fetch(`${API_BASE}/version.json?t=${Date.now()}`)
+      .then((r) => r.json()).then((d) => setLatest(d && d.version)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('jarvis_continuous', continuous ? '1' : '0')
@@ -68,6 +78,14 @@ export default function App() {
             <span className="font-display text-[11px] font-bold text-white/95" style={{ letterSpacing: 0 }}>J</span>
           </div>
           <h1 className="jarvis-title text-xl">JARVIS</h1>
+          {ver && <span className="font-mono text-[10px] text-jarvis-muted self-end mb-1">v{ver}</span>}
+          {ver && latest && latest !== ver && (
+            <a href={`${API_BASE}/jarvis.apk`}
+              className="font-display text-[10px] tracking-wide text-jarvis-accent border border-jarvis-accent/50 rounded-full px-2 py-0.5 glow-border"
+              style={{ animation: 'live-pulse 1.6s ease-in-out infinite' }}>
+              ⬆ v{latest}
+            </a>
+          )}
           <div className="ml-auto flex items-center gap-2">
             {installPrompt && (
               <button onClick={handleInstall}
