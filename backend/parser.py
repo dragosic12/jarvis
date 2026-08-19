@@ -217,6 +217,45 @@ def _pc_intent(raw, context, val):
             "context": context, "silent": False}
 
 
+def _match_pc_control(text, raw, context):
+    """Controlar el sobremesa por voz: volumen, media, apagar/bloquear, captura.
+    Solo actua si el comando menciona el ordenador (o el contexto ya es 'desktop')."""
+    is_pc = context == "desktop" or re.search(r"\b(ordenador|ordenata|pc|sobremesa)\b", text)
+    if not is_pc:
+        return None
+
+    def out(action):
+        return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": action,
+                "action_type": "pc_ctrl", "action_value": action, "command_id": None,
+                "description": f"PC: {action}", "platform": "all", "query": None,
+                "context": context, "silent": True}
+
+    if re.search(r"captura|pantallazo|screenshot|foto de la pantalla|captura de pantalla", text):
+        return out("screenshot")
+    if re.search(r"\breinicia|reiniciar|reinicio\b", text):
+        return out("reboot")
+    if re.search(r"suspende|suspender|hiberna|duerme el|ponlo a dormir", text):
+        return out("suspend")
+    if re.search(r"\bapaga|apagar\b", text) and not re.search(r"linterna|luz|pantalla", text):
+        return out("shutdown")
+    if re.search(r"bloquea|bloquear|bloqueo", text):
+        return out("lock")
+    if re.search(r"silencia|silencio|mutea|\bmute\b|quita el sonido", text):
+        return out("mute")
+    if re.search(r"\b(sube|subir|mas)\b", text) and re.search(r"volumen|sonido", text):
+        return out("vol_up")
+    if re.search(r"\b(baja|bajar|menos)\b", text) and re.search(r"volumen|sonido", text):
+        return out("vol_down")
+    if re.search(r"siguiente|proxima cancion|pasa (de |la )?cancion|salta la cancion|salta de cancion", text):
+        return out("next")
+    if re.search(r"cancion anterior|tema anterior|anterior cancion|\banterior\b|previa", text):
+        return out("prev")
+    if re.search(r"pausa|pausar|reanuda|reproduce|dale al play|pon la musica|quita la musica|"
+                 r"\bplay\b|para la (musica|cancion|reproduccion)|para la peli", text):
+        return out("playpause")
+    return None
+
+
 def _match_weather(text, raw, context):
     """El tiempo / clima."""
     if re.search(r"(que tiempo (hace|va a hacer|hara|tenemos)|el tiempo( de (hoy|manana))?$|"
@@ -795,7 +834,7 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
             break
 
     # 2a. Ayuda, dispositivo, sonido, bloqueo, volumen, hora, alarmas, temporizadores
-    for matcher in (_match_pc_open, _match_claude, _match_conversation, _match_translate,
+    for matcher in (_match_pc_control, _match_pc_open, _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
                     _match_car, _match_routine, _match_wa_audio,

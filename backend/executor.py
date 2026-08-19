@@ -79,6 +79,9 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
         elif action_type == "pc_open":
             return _handle_pc_open(action_value)
 
+        elif action_type == "pc_ctrl":
+            return _handle_pc_ctrl(action_value)
+
         elif action_type == "search":
             return _handle_search(action_value, query, target_platform)
 
@@ -276,6 +279,85 @@ def _handle_pc_open(target: str) -> dict:
         msg = f"Abriendo {target} en el ordenador."
     except Exception:
         msg = "No he podido abrirlo en el ordenador. Comprueba que esta encendido."
+    return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
+
+
+# --- Control del sobremesa: volumen, media, energia, captura ---
+# Inyecta teclas multimedia reales con keybd_event (P/Invoke); SendKeys NO sirve
+# para teclas de volumen/media (escribiria caracteres).
+_KBD_DEF = ('$k=Add-Type -MemberDefinition '
+            "'[DllImport(\"user32.dll\")] public static extern void keybd_event(byte b,byte s,uint f,int e);'"
+            ' -Name Kbd -Namespace Win32 -PassThru;')
+
+
+def _vk(code: str, times: int = 1) -> str:
+    tap = f"$k::keybd_event({code},0,0,0); $k::keybd_event({code},0,2,0)"
+    if times > 1:
+        return _KBD_DEF + f" 1..{times} | ForEach-Object {{ {tap} }}"
+    return _KBD_DEF + " " + tap
+
+
+_PC_SCREENSHOT = (
+    "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+    "$b=[System.Windows.Forms.SystemInformation]::VirtualScreen; "
+    "$bmp=New-Object System.Drawing.Bitmap($b.Width,$b.Height); "
+    "$g=[System.Drawing.Graphics]::FromImage($bmp); "
+    "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); "
+    "$p=Join-Path $env:USERPROFILE ('Pictures\\jarvis_'+(Get-Date -Format yyyyMMdd_HHmmss)+'.png'); "
+    "$bmp.Save($p); $g.Dispose(); $bmp.Dispose()"
+)
+
+_PC_CMDS = {
+    "vol_up":    _vk("0xAF", 5),   # VK_VOLUME_UP
+    "vol_down":  _vk("0xAE", 5),   # VK_VOLUME_DOWN
+    "mute":      _vk("0xAD"),      # VK_VOLUME_MUTE
+    "playpause": _vk("0xB3"),      # VK_MEDIA_PLAY_PAUSE
+    "next":      _vk("0xB0"),      # VK_MEDIA_NEXT_TRACK
+    "prev":      _vk("0xB1"),      # VK_MEDIA_PREV_TRACK
+    "lock":      "rundll32.exe user32.dll,LockWorkStation",
+    "shutdown":  "shutdown /s /t 5",
+    "reboot":    "shutdown /r /t 5",
+    "suspend":   "rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
+    "screenshot": _PC_SCREENSHOT,
+}
+
+_PC_SAY = {
+    "vol_up": "Subo el volumen del ordenador.",
+    "vol_down": "Bajo el volumen del ordenador.",
+    "mute": "Silencio en el ordenador.",
+    "playpause": "Hecho.",
+    "next": "Siguiente cancion.",
+    "prev": "Cancion anterior.",
+    "lock": "Bloqueo el ordenador.",
+    "shutdown": "Apagando el ordenador.",
+    "reboot": "Reiniciando el ordenador.",
+    "suspend": "Suspendiendo el ordenador.",
+    "screenshot": "Captura guardada en el ordenador.",
+}
+
+
+def _pc_run(ps_cmd: str, timeout: int = 15):
+    """Ejecuta PowerShell en el sobremesa por SSH via -EncodedCommand (a prueba de
+    comillas y caracteres especiales)."""
+    import base64
+    enc = base64.b64encode(ps_cmd.encode("utf-16-le")).decode()
+    return subprocess.run(
+        ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+         "user@192.168.1.50", "powershell", "-NoProfile", "-EncodedCommand", enc],
+        capture_output=True, text=True, errors="replace", timeout=timeout,
+    )
+
+
+def _handle_pc_ctrl(action: str) -> dict:
+    """Volumen / media / apagar-bloquear-suspender / captura en el sobremesa."""
+    cmd = _PC_CMDS.get(action)
+    if not cmd:
+        return {"success": False, "message": f"Accion de PC desconocida: {action}", "data": None}
+    try:
+        _pc_run(cmd)
+        msg = _PC_SAY.get(action, "Hecho en el ordenador.")
+    except Exception:
+        msg = "No he podido. Comprueba que el ordenador esta encendido."
     return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
 
 
