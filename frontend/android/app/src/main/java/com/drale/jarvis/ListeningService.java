@@ -18,10 +18,15 @@ import android.media.MediaRecorder;
 import android.media.MediaPlayer;
 import android.media.ToneGenerator;
 import android.media.AudioManager;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.os.Vibrator;
+import android.os.VibrationEffect;
 import android.speech.tts.TextToSpeech;
 
 import androidx.core.app.NotificationCompat;
@@ -52,7 +57,7 @@ public class ListeningService extends Service {
 
     // Parametros de VAD (equivalentes a la version JS)
     private static final int SAMPLE_RATE = 16000;
-    private static final double SILENCE_RMS = 0.005;   // mas bajo = mas sensible (voz lejana)
+    private static final double SILENCE_RMS = 0.0035;  // mas bajo = mas sensible (voz lejana)
     private static final int NORM_TARGET = 29000;      // pico objetivo tras normalizar (~0.9)
     private static final float NORM_MAX_GAIN = 12.0f;  // tope de amplificacion adaptativa
     private static final long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
@@ -447,12 +452,24 @@ public class ListeningService extends Service {
             sayBattery();
             return;
         }
+        if (url.startsWith("jarvis-findphone://")) {
+            findPhone();
+            return;
+        }
         if (url.startsWith("jarvis-conv://")) {
             boolean on = url.substring("jarvis-conv://".length()).startsWith("on");
             convMode = on;
             speak(on ? "Modo conversacion activado. Dime." : "Vale, hasta luego.");
             return;
         }
+        // Auto-enviar WhatsApp: si abrimos un chat con texto ya escrito, arma el
+        // servicio de accesibilidad para que pulse "Enviar" al cargar la conversacion.
+        // (Requiere que el usuario tenga activado el servicio de accesibilidad de Jarvis.)
+        String lu = url.toLowerCase();
+        if ((lu.contains("whatsapp") || lu.contains("wa.me")) && lu.contains("text=")) {
+            JarvisA11yService.armSend();
+        }
+
         Intent t = new Intent(this, TrampolineActivity.class);
         t.putExtra("url", url);
         t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
@@ -691,6 +708,63 @@ public class ListeningService extends Service {
         }
     }
 
+    private volatile Ringtone findRingtone;   // tono de "encuentra mi movil"
+
+    /** Hace sonar el movil a tope (aunque este en silencio) + vibra + parpadea la
+     *  linterna durante ~10s. Se dispara con "Jarvis, donde estas / busca el movil". */
+    private void findPhone() {
+        speak("Aqui estoy, jefe.");
+        try {
+            final AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            final int oldVol = am.getStreamVolume(AudioManager.STREAM_ALARM);
+            try { am.setStreamVolume(AudioManager.STREAM_ALARM,
+                    am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0); } catch (Exception ignored) {}
+
+            Uri alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+            if (alarmUri == null) alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            Ringtone rt = RingtoneManager.getRingtone(getApplicationContext(), alarmUri);
+            if (rt != null) {
+                try {
+                    rt.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build());
+                } catch (Exception ignored) {}
+                findRingtone = rt;
+                try { rt.play(); } catch (Exception ignored) {}
+            }
+
+            Vibrator vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (vib != null && vib.hasVibrator()) {
+                long[] pat = {0, 600, 300, 600, 300, 600, 300, 600, 300};
+                try {
+                    if (Build.VERSION.SDK_INT >= 26) vib.vibrate(VibrationEffect.createWaveform(pat, -1));
+                    else vib.vibrate(pat, -1);
+                } catch (Exception ignored) {}
+            }
+
+            // Parpadeo de linterna y, al cabo de ~10s, apagar todo y restaurar volumen
+            new Thread(() -> {
+                long end = System.currentTimeMillis() + 10000;
+                boolean on = false;
+                while (System.currentTimeMillis() < end && running && findRingtone != null) {
+                    on = !on;
+                    try { setTorch(on ? "on" : "off"); } catch (Exception ignored) {}
+                    try { Thread.sleep(500); } catch (InterruptedException e) { break; }
+                }
+                try { setTorch("off"); } catch (Exception ignored) {}
+                stopFindPhone();
+                try { am.setStreamVolume(AudioManager.STREAM_ALARM, oldVol, 0); } catch (Exception ignored) {}
+            }).start();
+        } catch (Exception ignored) {}
+    }
+
+    private void stopFindPhone() {
+        Ringtone r = findRingtone;
+        findRingtone = null;
+        try { if (r != null && r.isPlaying()) r.stop(); } catch (Exception ignored) {}
+    }
+
     private void stopPlayer() {
         MediaPlayer p = ttsPlayer;
         ttsPlayer = null;
@@ -704,11 +778,13 @@ public class ListeningService extends Service {
     private boolean ttsBusy() {
         try { MediaPlayer p = ttsPlayer; if (p != null && p.isPlaying()) return true; } catch (Exception ignored) {}
         try { if (tts != null && tts.isSpeaking()) return true; } catch (Exception ignored) {}
+        try { Ringtone r = findRingtone; if (r != null && r.isPlaying()) return true; } catch (Exception ignored) {}
         return false;
     }
 
     private void stopSpeaking() {
         stopPlayer();
+        stopFindPhone();
         try { if (tts != null) tts.stop(); } catch (Exception ignored) {}
     }
 
@@ -723,7 +799,7 @@ public class ListeningService extends Service {
         try {
             // Espera corta antes de escuchar "para" (rapido pero sin cortar las
             // confirmaciones cortas). El AEC cancela la propia voz de Jarvis.
-            Thread.sleep(900);
+            Thread.sleep(350);
             while (running && ttsBusy() && System.currentTimeMillis() - t0 < 30000) {
                 Segment seg = recordSegment(recorder, 1000);
                 if (!running) break;

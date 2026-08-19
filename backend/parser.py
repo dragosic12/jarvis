@@ -366,6 +366,14 @@ def _match_battery(text, raw, context):
     return None
 
 
+def _match_find_phone(text, raw, context):
+    # "donde estas", "busca/encuentra/haz sonar el movil" -> hace sonar el telefono
+    if re.search(r"\bdonde (estas|te has metido|te metiste|andas|te escondes)\b", text) \
+       or re.search(r"\b(busca|encuentra|localiza|haz sonar|hazlo sonar|suena|donde esta|donde deje)\b.*\b(movil|movi|telefono|celular)\b", text):
+        return _dev_intent(raw, context, "jarvis-findphone://", "Buscar el movil")
+    return None
+
+
 _CALL_PHON = None
 
 
@@ -698,9 +706,10 @@ def _match_whatsapp(text: str, raw: str, context: str):
 
 QUESTION_STARTERS = [
     "como ", "que es ", "que son ", "cual ", "cuales ", "por que ",
-    "explica ", "explicame ", "cuentame ", "dime como ", "que significa ",
+    "explica ", "explicame ", "cuentame ", "dime ", "dime como ", "que significa ",
     "que hace ", "que pasa ", "cuando ", "donde ", "quien ", "cuanto ",
-    "hay alguna ", "se puede ", "es posible ", "sabes ",
+    "hay alguna ", "se puede ", "es posible ", "sabes ", "me dices ",
+    "me puedes decir ", "puedes decirme ", "que fue ", "que era ", "para que sirve ",
 ]
 
 CONTEXT_PREFIXES = [
@@ -740,8 +749,8 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     # 2a. Ayuda, dispositivo, sonido, bloqueo, volumen, hora, alarmas, temporizadores
     for matcher in (_match_pc_open, _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
-                    _match_weather, _match_help, _match_torch, _match_battery, _match_call,
-                    _match_lock, _match_ringer, _match_volume,
+                    _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
+                    _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
         if hit:
