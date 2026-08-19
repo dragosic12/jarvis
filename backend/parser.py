@@ -100,7 +100,8 @@ def _say_intent(raw, context, msg):
 
 # Uso de Claude: "cuanto (porcentaje de) claude me queda", "uso semanal", "sesion actual"...
 _USAGE_KW = re.compile(r"\b(uso|usado|gasto|porcentaje|por ?ciento|queda|quedan|"
-                       r"gastad\w*|consumid\w*|limite|llevo|gastando|restante)\b")
+                       r"gastad\w*|consumid\w*|limite|llevo|gastando|restante|"
+                       r"renue\w*|renova\w*|reinici\w*|resetea\w*)\b")
 _CLAUDE_RE = re.compile(r"\bcl[oa]u?d[aeo]?\b")   # claude/claud/cloud/clode (fallos de Whisper)
 _USAGE_PHRASES = re.compile(
     r"(uso semanal|limite semanal|porcentaje semanal|sesion actual|"

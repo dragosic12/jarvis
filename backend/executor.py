@@ -277,11 +277,8 @@ def _handle_pc_open(target: str) -> dict:
     """Abrir una web/app en el sobremesa Windows por SSH (Start-Process)."""
     url = _pc_target_to_url(target)
     try:
-        subprocess.run(
-            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-             "user@192.168.1.50", "powershell", "-Command", f"Start-Process '{url}'"],
-            capture_output=True, text=True, timeout=12,
-        )
+        # Por la sesion interactiva, para que se abra en la pantalla que ve el usuario
+        _pc_run_interactive("Start-Process '" + url.replace("'", "''") + "'")
         msg = f"Abriendo {target} en el ordenador."
     except Exception:
         msg = "No he podido abrirlo en el ordenador. Comprueba que esta encendido."
@@ -354,13 +351,51 @@ def _pc_run(ps_cmd: str, timeout: int = 15):
     )
 
 
+# El SSH entra en la sesion 0 (sin escritorio visible), asi que SendKeys, captura
+# de pantalla y abrir apps NO llegan a la pantalla del usuario. Solucion: una tarea
+# programada (JarvisRun) que corre en la sesion INTERACTIVA del usuario; escribimos
+# el comando en un .ps1 y la disparamos.
+_pc_task_ready = False
+
+
+def _pc_ensure_task():
+    global _pc_task_ready
+    if _pc_task_ready:
+        return
+    ps = (
+        "if(-not(Get-ScheduledTask -TaskName 'JarvisRun' -ErrorAction SilentlyContinue)){"
+        "$p=Join-Path $env:USERPROFILE 'jarvis_cmd.ps1';"
+        "$a=New-ScheduledTaskAction -Execute 'powershell.exe' "
+        "-Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"'+$p+'\"');"
+        "$pr=New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest;"
+        "Register-ScheduledTask -TaskName 'JarvisRun' -Action $a -Principal $pr -Force | Out-Null}"
+    )
+    try:
+        _pc_run(ps, timeout=20)
+        _pc_task_ready = True
+    except Exception:
+        pass
+
+
+def _pc_run_interactive(ps_cmd: str, timeout: int = 15):
+    """Ejecuta PowerShell en la sesion interactiva del usuario (para SendKeys,
+    captura, abrir apps visibles). Escribe el comando en jarvis_cmd.ps1 y lanza la tarea."""
+    import base64
+    _pc_ensure_task()
+    b64 = base64.b64encode(ps_cmd.encode("utf-8")).decode()
+    writer = ("$c=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + b64 + "')); "
+              "Set-Content -Path (Join-Path $env:USERPROFILE 'jarvis_cmd.ps1') -Value $c -Encoding UTF8")
+    _pc_run(writer, timeout=timeout)
+    return _pc_run("Start-ScheduledTask -TaskName 'JarvisRun'", timeout=timeout)
+
+
 def _handle_pc_ctrl(action: str) -> dict:
     """Volumen / media / apagar-bloquear-suspender / captura en el sobremesa."""
     cmd = _PC_CMDS.get(action)
     if not cmd:
         return {"success": False, "message": f"Accion de PC desconocida: {action}", "data": None}
     try:
-        _pc_run(cmd)
+        _pc_run_interactive(cmd)
         msg = _PC_SAY.get(action, "Hecho en el ordenador.")
     except Exception:
         msg = "No he podido. Comprueba que el ordenador esta encendido."
@@ -381,7 +416,7 @@ def _handle_pc_type(text: str) -> dict:
     cmd = ("$w=New-Object -ComObject WScript.Shell; Start-Sleep -Milliseconds 250; "
            "$w.SendKeys('" + esc + "')")
     try:
-        _pc_run(cmd)
+        _pc_run_interactive(cmd)
         msg = "Escrito en el ordenador."
     except Exception:
         msg = "No he podido escribir en el ordenador."
@@ -400,27 +435,32 @@ _PC_SCREENSHOT_HOME = (
 
 
 def _handle_pc_shot() -> dict:
-    """Captura la pantalla del sobremesa, la trae al servidor y la abre en el movil."""
-    import time
+    """Captura la pantalla del sobremesa (en la sesion interactiva), la trae al
+    servidor y la abre en el movil."""
+    import time, os
     try:
-        _pc_run(_PC_SCREENSHOT_HOME, timeout=20)
+        # Borrar la captura anterior para no traer una vieja, y disparar la nueva
+        _pc_run("Remove-Item -Force \"$env:USERPROFILE\\jarvis_shot.png\" -ErrorAction SilentlyContinue")
+        _pc_run_interactive(_PC_SCREENSHOT_HOME, timeout=20)
         fname = f"pc_shot_{int(time.time())}.png"
-        r = subprocess.run(
-            ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-             "user@192.168.1.50:jarvis_shot.png", f"/var/www/jarvis/{fname}"],
-            capture_output=True, text=True, errors="replace", timeout=25,
-        )
-        if r.returncode != 0:
-            m = "Hice la captura pero no pude traerla al movil."
-            return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
-        try:
-            import os
-            os.chmod(f"/var/www/jarvis/{fname}", 0o644)  # que el servidor web pueda servirla
-        except Exception:
-            pass
-        url = f"https://jarvis.swapcar.app/{fname}"
-        return {"success": True, "message": "Aqui tienes la captura del ordenador.",
-                "data": {"type": "open_url", "url": url}}
+        dest = f"/var/www/jarvis/{fname}"
+        # La tarea es asincrona: sondear hasta que aparezca la captura real
+        for _ in range(9):
+            time.sleep(1)
+            r = subprocess.run(
+                ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                 "user@192.168.1.50:jarvis_shot.png", dest],
+                capture_output=True, text=True, errors="replace", timeout=15,
+            )
+            if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 5000:
+                try:
+                    os.chmod(dest, 0o644)  # que el servidor web pueda servirla
+                except Exception:
+                    pass
+                return {"success": True, "message": "Aqui tienes la captura del ordenador.",
+                        "data": {"type": "open_url", "url": f"https://jarvis.swapcar.app/{fname}"}}
+        m = "Hice la captura pero no pude traerla al movil."
+        return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
     except Exception:
         m = "No he podido hacer la captura del ordenador."
         return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
