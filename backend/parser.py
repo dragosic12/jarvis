@@ -256,6 +256,35 @@ def _match_pc_control(text, raw, context):
     return None
 
 
+def _match_pc_type(text, raw, context):
+    """'escribe en el ordenador X' -> teclea X en la ventana activa del sobremesa."""
+    m = re.match(r"^(?:escribe|escribeme|teclea|dicta) en (?:el )?(?:ordenador|pc|sobremesa) (.+)$", text)
+    if not m and context == "desktop":
+        m = re.match(r"^(?:escribe|escribeme|teclea|dicta) (.+)$", text)
+    if not m:
+        return None
+    # Sacar el texto real de raw (conserva mayusculas/acentos)
+    mr = re.search(r"(?:escribe|escribeme|teclea|dicta)(?:\s+en\s+(?:el\s+)?(?:ordenador|pc|sobremesa))?\s+(.+)$",
+                   raw, re.IGNORECASE)
+    payload = (mr.group(1).strip() if (mr and mr.group(1).strip()) else m.group(1).strip())
+    return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": "pc_type",
+            "action_type": "pc_type", "action_value": payload, "command_id": None,
+            "description": f"Escribir en el PC: {payload[:40]}", "platform": "all",
+            "query": None, "context": context, "silent": True}
+
+
+def _match_pc_shot(text, raw, context):
+    """'haz una captura y mandamela' -> captura del PC y la abre en el movil.
+    'mandamela/al movil' solo tiene sentido desde el PC, asi que no exige decir 'ordenador'."""
+    if re.search(r"captura|pantallazo|screenshot|pantalla", text) and \
+       re.search(r"mandamela|mandame|envia|enviamela|enviame|al movil|al telefono|ensename|muestrame|pasame|pasamela", text):
+        return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": "pc_shot",
+                "action_type": "pc_shot", "action_value": "", "command_id": None,
+                "description": "Captura del PC al movil", "platform": "all",
+                "query": None, "context": context, "silent": True}
+    return None
+
+
 def _match_weather(text, raw, context):
     """El tiempo / clima."""
     if re.search(r"(que tiempo (hace|va a hacer|hara|tenemos)|el tiempo( de (hoy|manana))?$|"
@@ -603,6 +632,33 @@ def _match_alarm_in(text, raw, context):
                          f"Alarma en {secs // 60} min ({target.hour}:{target.minute:02d})")
 
 
+def _match_reminder(text, raw, context):
+    """'recuerdame X en 10 minutos' / 'recuerdame X a las 6' -> alarma/timer con etiqueta."""
+    if not re.match(r"^recuerda(?:me|te)?\b", text):
+        return None
+    from urllib.parse import quote
+    body = re.sub(r"^recuerda(?:me|te)?\s+(?:que\s+)?", "", text).strip()
+    if not body:
+        return None
+    # Relativo: "... en / dentro de <duracion>"
+    m = re.search(r"^(.*?)\s+(?:en|dentro de)\s+(.+)$", body)
+    if m:
+        msg = m.group(1).strip()
+        secs = _parse_duration(m.group(2))
+        if msg and secs > 0:
+            return _clock_intent(raw, context, f"jarvis-timer://{secs}?msg={quote(msg)}",
+                                 f"Recordatorio: {msg}")
+    # Absoluto: "... a las <hora>"
+    m = re.search(r"^(.*?)\s+(?:a las?|para las?)\s+(.+)$", body)
+    if m:
+        msg = m.group(1).strip()
+        hh, mm = _parse_spoken_time(m.group(2))
+        if msg and hh is not None:
+            return _clock_intent(raw, context, f"jarvis-alarm://{hh}:{mm}?msg={quote(msg)}",
+                                 f"Recordatorio a las {hh}:{mm:02d}: {msg}")
+    return None
+
+
 def normalize(text: str) -> str:
     """Normaliza: minusculas, sin tildes, sin puntuacion extra."""
     text = text.lower().strip()
@@ -887,12 +943,13 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     # (p.ej. "termina la rutina y llamala buenos dias") puede ser interceptado
     # antes de tiempo por matchers mas sueltos (_match_briefing con "buenos
     # dias", _match_weather, etc.) que no exigen esa palabra.
-    for matcher in (_match_routine, _match_pc_control, _match_pc_open, _match_claude, _match_conversation, _match_translate,
+    for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_control, _match_pc_open,
+                    _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
                     _match_car, _match_wa_audio,
                     _match_call, _match_lock, _match_ringer, _match_volume,
-                    _match_time, _match_alarm_in, _match_timer, _match_alarm):
+                    _match_reminder, _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
         if hit:
             return hit

@@ -672,6 +672,14 @@ public class ListeningService extends Service {
 
     private void setClock(String url) {
         try {
+            // Etiqueta opcional para recordatorios: jarvis-alarm://6:0?msg=comprar%20pan
+            String msg = null;
+            int q = url.indexOf("?msg=");
+            if (q >= 0) {
+                try { msg = java.net.URLDecoder.decode(url.substring(q + 5), "UTF-8"); } catch (Exception ignored) {}
+                url = url.substring(0, q);
+            }
+            boolean hasMsg = msg != null && !msg.isEmpty();
             Intent intent;
             String confirm;
             if (url.startsWith("jarvis-alarm://")) {
@@ -682,14 +690,25 @@ public class ListeningService extends Service {
                 intent.putExtra(android.provider.AlarmClock.EXTRA_HOUR, h);
                 intent.putExtra(android.provider.AlarmClock.EXTRA_MINUTES, m);
                 intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
-                confirm = String.format(Locale.ROOT, "Alarma puesta a las %d %02d", h, m);
+                if (hasMsg) {
+                    intent.putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, msg);
+                    confirm = String.format(Locale.ROOT, "Te lo recuerdo a las %d %02d: %s", h, m, msg);
+                } else {
+                    confirm = String.format(Locale.ROOT, "Alarma puesta a las %d %02d", h, m);
+                }
             } else {
                 int secs = Integer.parseInt(url.substring("jarvis-timer://".length()));
                 intent = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER);
                 intent.putExtra(android.provider.AlarmClock.EXTRA_LENGTH, secs);
                 intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
                 int mins = secs / 60;
-                confirm = mins > 0 ? "Temporizador de " + mins + " minutos" : "Temporizador de " + secs + " segundos";
+                if (hasMsg) {
+                    intent.putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, msg);
+                    confirm = (mins > 0 ? "Te lo recuerdo en " + mins + " minutos: "
+                                        : "Te lo recuerdo en " + secs + " segundos: ") + msg;
+                } else {
+                    confirm = mins > 0 ? "Temporizador de " + mins + " minutos" : "Temporizador de " + secs + " segundos";
+                }
             }
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);

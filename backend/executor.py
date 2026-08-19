@@ -82,6 +82,12 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
         elif action_type == "pc_ctrl":
             return _handle_pc_ctrl(action_value)
 
+        elif action_type == "pc_type":
+            return _handle_pc_type(action_value)
+
+        elif action_type == "pc_shot":
+            return _handle_pc_shot()
+
         elif action_type == "search":
             return _handle_search(action_value, query, target_platform)
 
@@ -359,6 +365,65 @@ def _handle_pc_ctrl(action: str) -> dict:
     except Exception:
         msg = "No he podido. Comprueba que el ordenador esta encendido."
     return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
+
+
+def _sendkeys_escape(s: str) -> str:
+    """Escapa los caracteres especiales de SendKeys (+^%~(){}[]) envolviendolos."""
+    special = set("+^%~(){}[]")
+    return "".join("{" + c + "}" if c in special else c for c in s)
+
+
+def _handle_pc_type(text: str) -> dict:
+    """Teclea texto en la ventana activa del sobremesa (dictado por voz)."""
+    if not text or not text.strip():
+        return {"success": False, "message": "No he entendido que escribir.", "data": None}
+    esc = _sendkeys_escape(text.strip()).replace("'", "''")
+    cmd = ("$w=New-Object -ComObject WScript.Shell; Start-Sleep -Milliseconds 250; "
+           "$w.SendKeys('" + esc + "')")
+    try:
+        _pc_run(cmd)
+        msg = "Escrito en el ordenador."
+    except Exception:
+        msg = "No he podido escribir en el ordenador."
+    return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
+
+
+_PC_SCREENSHOT_HOME = (
+    "Add-Type -AssemblyName System.Windows.Forms,System.Drawing; "
+    "$b=[System.Windows.Forms.SystemInformation]::VirtualScreen; "
+    "$bmp=New-Object System.Drawing.Bitmap($b.Width,$b.Height); "
+    "$g=[System.Drawing.Graphics]::FromImage($bmp); "
+    "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size); "
+    "$p=Join-Path $env:USERPROFILE 'jarvis_shot.png'; "
+    "$bmp.Save($p); $g.Dispose(); $bmp.Dispose()"
+)
+
+
+def _handle_pc_shot() -> dict:
+    """Captura la pantalla del sobremesa, la trae al servidor y la abre en el movil."""
+    import time
+    try:
+        _pc_run(_PC_SCREENSHOT_HOME, timeout=20)
+        fname = f"pc_shot_{int(time.time())}.png"
+        r = subprocess.run(
+            ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+             "user@192.168.1.50:jarvis_shot.png", f"/var/www/jarvis/{fname}"],
+            capture_output=True, text=True, errors="replace", timeout=25,
+        )
+        if r.returncode != 0:
+            m = "Hice la captura pero no pude traerla al movil."
+            return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+        try:
+            import os
+            os.chmod(f"/var/www/jarvis/{fname}", 0o644)  # que el servidor web pueda servirla
+        except Exception:
+            pass
+        url = f"https://jarvis.swapcar.app/{fname}"
+        return {"success": True, "message": "Aqui tienes la captura del ordenador.",
+                "data": {"type": "open_url", "url": url}}
+    except Exception:
+        m = "No he podido hacer la captura del ordenador."
+        return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
 
 
 def _handle_device(action: str) -> dict:
