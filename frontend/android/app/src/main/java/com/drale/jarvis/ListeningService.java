@@ -30,11 +30,14 @@ import android.os.VibrationEffect;
 import android.speech.tts.TextToSpeech;
 
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.FileProvider;
 
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -82,6 +85,11 @@ public class ListeningService extends Service {
     private volatile boolean convMode = false;   // modo conversacion (Iron Man)
     private ToneGenerator tone;
 
+    private static ListeningService self;         // para que el NotifListener hable
+    private volatile boolean carMode = false;     // modo coche (lee mensajes en alto)
+    private int carOldMusicVol = -1;              // volumen de musica antes del modo coche
+    private volatile String pendingAudioJid = ""; // WhatsApp: grabar el proximo audio para este numero
+
     // Frases para salir del modo conversacion (sin ir al servidor)
     private static final Pattern EXIT_RE = Pattern.compile(
             "\\b(gracias|adios|adios jarvis|hasta luego|hasta ahora|modo normal|ya esta|"
@@ -97,6 +105,7 @@ public class ListeningService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        self = this;
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 70); } catch (Exception ignored) {}
 
         // Muchos moviles (Oppo/Realme) no traen motor de voz por defecto en
@@ -199,6 +208,7 @@ public class ListeningService extends Service {
                     recorder.startRecording();
                 }
 
+                if (!pendingAudioJid.isEmpty()) armed = true;  // grabar el proximo segmento como audio
                 if (armed) beep(660, 120);
                 long noSpeech = armed ? (convMode ? NO_SPEECH_CONV_MS : NO_SPEECH_ARMED_MS)
                                       : NO_SPEECH_WAKE_MS;
@@ -206,6 +216,13 @@ public class ListeningService extends Service {
                 if (!running) break;
 
                 if (seg == null || !seg.hadSpeech || seg.pcm.length < MIN_PCM_BYTES) {
+                    if (!pendingAudioJid.isEmpty()) {   // esperaba un audio y no llego nada
+                        pendingAudioJid = "";
+                        armed = false;
+                        speak("No he oido el audio, lo cancelo.");
+                        waitTtsIdle(recorder);
+                        continue;
+                    }
                     if (armed) {
                         armed = false;
                         if (convMode) {                 // silencio: fin de la conversacion
@@ -216,6 +233,15 @@ public class ListeningService extends Service {
                             beep(330, 200);             // no llego comando
                         }
                     }
+                    continue;
+                }
+
+                if (!pendingAudioJid.isEmpty()) {       // el segmento grabado es el audio a enviar
+                    String jid = pendingAudioJid;
+                    pendingAudioJid = "";
+                    armed = false;
+                    sendWhatsAppAudio(jid, seg.pcm);
+                    waitTtsIdle(recorder);
                     continue;
                 }
 
@@ -454,6 +480,15 @@ public class ListeningService extends Service {
         }
         if (url.startsWith("jarvis-findphone://")) {
             findPhone();
+            return;
+        }
+        if (url.startsWith("jarvis-wa-audio://")) {
+            pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
+            speak("Vale, dime el audio despues del pitido.");
+            return;
+        }
+        if (url.startsWith("jarvis-car://")) {
+            setCarMode(url.substring("jarvis-car://".length()).startsWith("on"));
             return;
         }
         if (url.startsWith("jarvis-conv://")) {
@@ -765,6 +800,82 @@ public class ListeningService extends Service {
         try { if (r != null && r.isPlaying()) r.stop(); } catch (Exception ignored) {}
     }
 
+    // ---- Audio de WhatsApp ----
+    /** Guarda el PCM grabado como WAV, lo adjunta al chat de WhatsApp del numero
+     *  (via extra "jid") y arma el auto-envio para que accesibilidad pulse "Enviar". */
+    private void sendWhatsAppAudio(String jid, byte[] pcm) {
+        try {
+            byte[] wav = wrapWav(pcm);
+            File f = new File(getCacheDir(), "jarvis_audio.wav");
+            FileOutputStream fos = new FileOutputStream(f);
+            fos.write(wav);
+            fos.close();
+
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", f);
+            speak("Enviando el audio.");
+            JarvisA11yService.armSend();   // pulsa "Enviar" en la vista previa del adjunto
+
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("audio/*");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.putExtra("jid", jid + "@s.whatsapp.net");   // abre directo en ese chat
+            send.setPackage("com.whatsapp");
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(send);
+        } catch (Exception e) {
+            speak("No he podido enviar el audio.");
+        }
+    }
+
+    // ---- Modo coche ----
+    private void setCarMode(boolean on) {
+        carMode = on;
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (on) {
+                carOldMusicVol = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+                am.setStreamVolume(AudioManager.STREAM_MUSIC,
+                        am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0);
+            } else if (carOldMusicVol >= 0) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, carOldMusicVol, 0);
+                carOldMusicVol = -1;
+            }
+        } catch (Exception ignored) {}
+
+        if (on) {
+            if (notifAccessEnabled()) {
+                speak("Modo coche activado. Te leo los mensajes que lleguen.");
+            } else {
+                speak("Modo coche activado. Para leerte los mensajes, activa el acceso a notificaciones de Jarvis.");
+                try {
+                    Intent i = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception ignored) {}
+            }
+        } else {
+            speak("Modo coche desactivado.");
+        }
+    }
+
+    private boolean notifAccessEnabled() {
+        try {
+            String flat = android.provider.Settings.Secure.getString(
+                    getContentResolver(), "enabled_notification_listeners");
+            return flat != null && flat.contains(getPackageName());
+        } catch (Exception e) { return false; }
+    }
+
+    /** El NotificationListener llama aqui para leer un mensaje en alto (solo en modo coche). */
+    public static void carAnnounce(String text) {
+        ListeningService s = self;
+        if (s != null && s.carMode) s.speak(text);
+    }
+    public static boolean isCarMode() {
+        ListeningService s = self;
+        return s != null && s.carMode;
+    }
+
     private void stopPlayer() {
         MediaPlayer p = ttsPlayer;
         ttsPlayer = null;
@@ -829,6 +940,7 @@ public class ListeningService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        if (self == this) self = null;
         if (audioThread != null) audioThread.interrupt();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         stopPlayer();

@@ -374,6 +374,37 @@ def _match_find_phone(text, raw, context):
     return None
 
 
+def _match_car(text, raw, context):
+    # "activa/enciende el modo coche" / "modo coche" / "apaga el modo coche"
+    if not re.search(r"modo coche|modo conducir|modo conduccion", text):
+        return None
+    if re.search(r"\b(apaga|desactiva|quita|sal del|salir del|termina|para el|desactivar)\b", text):
+        return _dev_intent(raw, context, "jarvis-car://off", "Modo coche off")
+    return _dev_intent(raw, context, "jarvis-car://on", "Modo coche on")
+
+
+def _match_wa_audio(text, raw, context):
+    # "envia/manda/graba un audio (o nota de voz) a X"
+    m = re.match(
+        r"^(?:envia(?:le)?|manda(?:le)?|graba(?:le)?) (?:un |una |el )?"
+        r"(?:audio|nota de voz|mensaje de voz|nota) (?:a |al |para )(.+)$", text)
+    if not m:
+        return None
+    name = m.group(1).strip()
+    contact = _get_contact(name)
+    if not contact:
+        return _no_contact(raw, name)
+    digits = re.sub(r"\D", "", contact["phone"])
+    if len(digits) == 9:
+        digits = "34" + digits
+    return {
+        "matched": True, "raw_text": raw, "category": "mensaje", "trigger": contact["name"],
+        "action_type": "url", "action_value": f"jarvis-wa-audio://{digits}", "command_id": None,
+        "description": f"Audio de WhatsApp a {contact['name']}", "platform": "all",
+        "query": None, "context": context, "silent": True,
+    }
+
+
 _CALL_PHON = None
 
 
@@ -750,6 +781,7 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     for matcher in (_match_pc_open, _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
+                    _match_car, _match_wa_audio,
                     _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
