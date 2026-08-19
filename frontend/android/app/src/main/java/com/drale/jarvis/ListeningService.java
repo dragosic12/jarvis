@@ -1,0 +1,766 @@
+package com.drale.jarvis;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ServiceInfo;
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+import android.media.AudioFormat;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.media.MediaPlayer;
+import android.media.ToneGenerator;
+import android.media.AudioManager;
+import android.os.BatteryManager;
+import android.os.Build;
+import android.os.IBinder;
+import android.os.PowerManager;
+import android.speech.tts.TextToSpeech;
+
+import androidx.core.app.NotificationCompat;
+
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.text.Normalizer;
+import java.util.Locale;
+import java.util.regex.Pattern;
+
+/**
+ * Escucha continua NATIVA: graba con AudioRecord, detecta voz por energia,
+ * envia el audio al backend, reconoce la wake word "Jarvis" y ejecuta el
+ * comando (abrir apps, TTS de respuestas). Corre en el servicio en primer
+ * plano, asi que sigue funcionando con la app cerrada o la pantalla apagada
+ * -- a diferencia del WebView, que Android congela en segundo plano.
+ */
+public class ListeningService extends Service {
+
+    private static final String CHANNEL_ID = "jarvis_listening";
+    private static final int NOTIF_ID = 1001;
+
+    // Parametros de VAD (equivalentes a la version JS)
+    private static final int SAMPLE_RATE = 16000;
+    private static final double SILENCE_RMS = 0.005;   // mas bajo = mas sensible (voz lejana)
+    private static final int NORM_TARGET = 29000;      // pico objetivo tras normalizar (~0.9)
+    private static final float NORM_MAX_GAIN = 12.0f;  // tope de amplificacion adaptativa
+    private static final long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
+    private static final long MIN_SPEECH_MS = 400;
+    private static final long MAX_SEG_MS = 15000;
+    private static final long NO_SPEECH_WAKE_MS = 8000;
+    private static final long NO_SPEECH_ARMED_MS = 6000;
+    private static final long NO_SPEECH_CONV_MS = 12000;   // modo conversacion: mas margen
+    private static final int MIN_PCM_BYTES = 8000;      // ~0.25s: descartar clics
+
+    // Cualquier palabra que suene a "Jarvis"
+    private static final Pattern WAKE_RE =
+            Pattern.compile("^(?:ch|[jyghx])?[ae]+r+[bvw]+i+[sz]*$");
+
+    private PowerManager.WakeLock wakeLock;
+    private volatile boolean running = false;
+    private Thread audioThread;
+    private String apiBase = "";
+    private String token = "";
+    private TextToSpeech tts;
+    private volatile MediaPlayer ttsPlayer;   // voz del servidor (voz masculina Alvaro)
+    private volatile boolean convMode = false;   // modo conversacion (Iron Man)
+    private ToneGenerator tone;
+
+    // Frases para salir del modo conversacion (sin ir al servidor)
+    private static final Pattern EXIT_RE = Pattern.compile(
+            "\\b(gracias|adios|adios jarvis|hasta luego|hasta ahora|modo normal|ya esta|"
+            + "nada mas|sal del modo|dejalo ya|se acabo|eso es todo|corta ya|ya vale)\\b");
+
+    private boolean isExitPhrase(String text) {
+        String n = Normalizer.normalize(text.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                .replaceAll("\\p{Mn}", "").trim();
+        int words = n.isEmpty() ? 0 : n.split("\\s+").length;
+        return words > 0 && words <= 4 && EXIT_RE.matcher(n).find();
+    }
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 70); } catch (Exception ignored) {}
+
+        // Muchos moviles (Oppo/Realme) no traen motor de voz por defecto en
+        // espanol. Si Google TTS esta instalado, usarlo explicitamente en vez
+        // del motor del sistema (que aqui es null/chino y no habla).
+        String engine = null;
+        try {
+            getPackageManager().getPackageInfo("com.google.android.tts", 0);
+            engine = "com.google.android.tts";
+        } catch (Exception ignored) {}
+
+        TextToSpeech.OnInitListener init = status -> {
+            if (status == TextToSpeech.SUCCESS && tts != null) {
+                int r = tts.setLanguage(new Locale("es", "ES"));
+                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(new Locale("es"));
+                }
+            }
+        };
+        tts = (engine != null) ? new TextToSpeech(this, init, engine)
+                               : new TextToSpeech(this, init);
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null) {
+            if (intent.getStringExtra("apiBase") != null) apiBase = intent.getStringExtra("apiBase");
+            if (intent.getStringExtra("token") != null) token = intent.getStringExtra("token");
+        }
+
+        startForegroundNotification();
+
+        if (wakeLock == null) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jarvis:listening");
+            wakeLock.acquire();
+        }
+
+        if (!running) {
+            running = true;
+            audioThread = new Thread(this::listenLoop, "jarvis-audio");
+            audioThread.start();
+        }
+        return START_STICKY;
+    }
+
+    private void startForegroundNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                    CHANNEL_ID, "Escucha continua", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("Jarvis escuchando en segundo plano");
+            ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE))
+                    .createNotificationChannel(ch);
+        }
+        Intent open = new Intent(this, MainActivity.class);
+        PendingIntent pi = PendingIntent.getActivity(this, 0, open,
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        Notification notif = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("Jarvis")
+                .setContentText("Escuchando — di \"Jarvis\"")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentIntent(pi)
+                .setOngoing(true)
+                .build();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+        } else {
+            startForeground(NOTIF_ID, notif);
+        }
+    }
+
+    // ---- Bucle principal de escucha ----
+
+    private void listenLoop() {
+        int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        int bufSize = Math.max(minBuf, SAMPLE_RATE); // ~1s de holgura
+        AudioRecord recorder = null;
+        boolean armed = false;
+
+        while (running) {
+            try {
+                if (recorder == null) {
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT, bufSize);
+                    if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                        recorder.release(); recorder = null;
+                        Thread.sleep(1500); continue;   // mic ocupado: reintentar
+                    }
+                    // Cancelacion de eco: para que el micro NO oiga la propia voz
+                    // de Jarvis (permite decir "para" mientras habla)
+                    try {
+                        int sid = recorder.getAudioSessionId();
+                        if (android.media.audiofx.AcousticEchoCanceler.isAvailable())
+                            android.media.audiofx.AcousticEchoCanceler.create(sid).setEnabled(true);
+                        if (android.media.audiofx.NoiseSuppressor.isAvailable())
+                            android.media.audiofx.NoiseSuppressor.create(sid).setEnabled(true);
+                    } catch (Exception ignored) {}
+                    recorder.startRecording();
+                }
+
+                if (armed) beep(660, 120);
+                long noSpeech = armed ? (convMode ? NO_SPEECH_CONV_MS : NO_SPEECH_ARMED_MS)
+                                      : NO_SPEECH_WAKE_MS;
+                Segment seg = recordSegment(recorder, noSpeech);
+                if (!running) break;
+
+                if (seg == null || !seg.hadSpeech || seg.pcm.length < MIN_PCM_BYTES) {
+                    if (armed) {
+                        armed = false;
+                        if (convMode) {                 // silencio: fin de la conversacion
+                            convMode = false;
+                            speak("Vale. Cuando quieras, dime Jarvis.");
+                            waitTtsIdle(recorder);
+                        } else {
+                            beep(330, 200);             // no llego comando
+                        }
+                    }
+                    continue;
+                }
+
+                byte[] wav = wrapWav(seg.pcm);
+                String text = safeTranscribe(wav);
+                if (text == null || text.trim().isEmpty()) {
+                    if (armed && !convMode) armed = false;
+                    continue;
+                }
+
+                if (armed) {
+                    armed = false;
+                    if (convMode && isExitPhrase(text)) {   // "gracias/adios" -> salir
+                        convMode = false;
+                        speak("Hasta luego.");
+                        waitTtsIdle(recorder);
+                        continue;
+                    }
+                    beep(880, 120);
+                    runCommandText(text);
+                    if (convMode) armed = true;   // seguir hablando sin repetir "Jarvis"
+                } else {
+                    Wake wk = matchWake(text);
+                    if (!wk.wake) { sendLog(text, "ignorado"); continue; }
+                    if (!wk.command.isEmpty()) {
+                        beep(880, 120);
+                        runCommandText(wk.command);
+                        if (convMode) armed = true;
+                    } else {
+                        sendLog(text, "armado");
+                        armed = true;   // solo "Jarvis": esperar el comando
+                    }
+                }
+                waitTtsIdle(recorder);
+            } catch (Exception e) {
+                try { if (recorder != null) { recorder.release(); recorder = null; } } catch (Exception ignored) {}
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) { break; }
+            }
+        }
+        try { if (recorder != null) { recorder.stop(); recorder.release(); } } catch (Exception ignored) {}
+    }
+
+    private static class Segment { byte[] pcm; boolean hadSpeech; }
+
+    /** Graba un segmento con VAD hasta silencio tras voz, o timeout sin voz. */
+    private Segment recordSegment(AudioRecord recorder, long noSpeechMs) {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        short[] frame = new short[1600]; // ~100ms
+        long t0 = System.currentTimeMillis();
+        long silenceStart = 0;
+        boolean hadSpeech = false;
+
+        while (running) {
+            int n = recorder.read(frame, 0, frame.length);
+            if (n <= 0) continue;
+
+            double sum = 0;
+            for (int i = 0; i < n; i++) { double s = frame[i] / 32768.0; sum += s * s; }
+            double rms = Math.sqrt(sum / n);
+
+            // VAD sobre la senal cruda; el buffer guarda PCM crudo. La
+            // amplificacion se hace al final, normalizando por pico (wrapWav).
+            byte[] bytes = new byte[n * 2];
+            for (int i = 0; i < n; i++) {
+                bytes[i * 2] = (byte) (frame[i] & 0xff);
+                bytes[i * 2 + 1] = (byte) ((frame[i] >> 8) & 0xff);
+            }
+            buf.write(bytes, 0, bytes.length);
+
+            long ms = System.currentTimeMillis() - t0;
+            if (ms < MIN_SPEECH_MS) continue;
+
+            if (rms > SILENCE_RMS) {
+                hadSpeech = true;
+                silenceStart = 0;
+            } else if (hadSpeech) {
+                if (silenceStart == 0) silenceStart = System.currentTimeMillis();
+                else if (System.currentTimeMillis() - silenceStart > SILENCE_MS) break;
+            } else if (ms > noSpeechMs) {
+                break; // esperando "Jarvis" y nadie hablo: reciclar
+            }
+            if (ms > MAX_SEG_MS) break;
+        }
+        Segment seg = new Segment();
+        seg.pcm = buf.toByteArray();
+        seg.hadSpeech = hadSpeech;
+        return seg;
+    }
+
+    // ---- Wake word ----
+
+    private static class Wake { boolean wake; String command = ""; }
+
+    private Wake matchWake(String text) {
+        Wake r = new Wake();
+        String norm = Normalizer.normalize(text.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                .replaceAll("\\p{Mn}", "")
+                .replaceAll("[^a-z0-9ñ ]+", " ")
+                .trim();
+        String[] w = norm.split("\\s+");
+        int limit = Math.min(w.length, 3);
+        for (int i = 0; i < limit; i++) {
+            if (w[i].isEmpty()) continue;
+            if (WAKE_RE.matcher(w[i]).matches()) {
+                r.wake = true;
+                r.command = join(w, i + 1);
+                return r;
+            }
+            if (i + 1 < w.length && WAKE_RE.matcher(w[i] + w[i + 1]).matches()) {
+                r.wake = true;
+                r.command = join(w, i + 2);
+                return r;
+            }
+        }
+        return r;
+    }
+
+    private String join(String[] w, int from) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = from; i < w.length; i++) { if (sb.length() > 0) sb.append(' '); sb.append(w[i]); }
+        return sb.toString().trim();
+    }
+
+    // ---- Backend ----
+
+    private String safeTranscribe(byte[] wav) {
+        try { return transcribe(wav); }
+        catch (Exception e) { return null; }
+    }
+
+    private String transcribe(byte[] wav) throws Exception {
+        String boundary = "----jarvis" + System.currentTimeMillis();
+        HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/transcribe").openConnection();
+        c.setConnectTimeout(8000); c.setReadTimeout(20000);
+        c.setDoOutput(true); c.setRequestMethod("POST");
+        c.setRequestProperty("Authorization", "Bearer " + token);
+        c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        DataOutputStream out = new DataOutputStream(c.getOutputStream());
+        out.writeBytes("--" + boundary + "\r\n");
+        out.writeBytes("Content-Disposition: form-data; name=\"audio\"; filename=\"audio.wav\"\r\n");
+        out.writeBytes("Content-Type: audio/wav\r\n\r\n");
+        out.write(wav);
+        out.writeBytes("\r\n--" + boundary + "--\r\n");
+        out.flush(); out.close();
+        String body = readBody(c);
+        return new JSONObject(body).optString("text", "");
+    }
+
+    private void runCommandText(String text) {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/command/text").openConnection();
+            c.setConnectTimeout(8000); c.setReadTimeout(30000);
+            c.setDoOutput(true); c.setRequestMethod("POST");
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            c.setRequestProperty("Content-Type", "application/json");
+            JSONObject payload = new JSONObject();
+            payload.put("text", text); payload.put("platform", "mobile");
+            OutputStream out = c.getOutputStream();
+            out.write(payload.toString().getBytes("UTF-8"));
+            out.flush(); out.close();
+            JSONObject resp = new JSONObject(readBody(c));
+            JSONObject result = resp.optJSONObject("result");
+            JSONObject data = (result != null) ? result.optJSONObject("data") : null;
+            if (data == null) {
+                // No se pudo ejecutar (no reconocido, contacto sin numero...):
+                // pitido de error + aviso por voz, en vez de callarse
+                beep(330, 250);
+                String msg = (result != null) ? result.optString("message", "") : "";
+                if (msg.isEmpty()) {
+                    JSONObject intent = resp.optJSONObject("intent");
+                    if (intent != null) msg = intent.optString("error", "");
+                }
+                speak(msg.isEmpty() ? "No te he entendido" : msg);
+                sendLog(text, "no reconocido");
+                return;
+            }
+            String type = data.optString("type", "");
+            if ("open_url".equals(type)) {
+                launchUrl(data.optString("url", ""));
+            } else if ("device_action".equals(type)) {
+                if ("camera".equals(data.optString("action", ""))) launchUrl("camera");
+            } else if ("spoken_response".equals(type)) {
+                speak(data.optString("text", result.optString("message", "")),
+                      data.optString("voice", ""));
+            } else {
+                String msg = result.optString("message", "");
+                if (!msg.isEmpty() && msg.length() < 200) speak(msg);
+            }
+            sendLog(text, "ejecutado");
+        } catch (Exception e) {
+            beep(330, 250);
+            speak("Ha habido un error de conexion");
+            sendLog(text, "error de red");
+        }
+    }
+
+    private String readBody(HttpURLConnection c) throws Exception {
+        java.io.InputStream is = (c.getResponseCode() >= 400) ? c.getErrorStream() : c.getInputStream();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] b = new byte[4096]; int r;
+        while ((r = is.read(b)) != -1) bos.write(b, 0, r);
+        is.close();
+        return bos.toString("UTF-8");
+    }
+
+    // ---- Apertura de apps ----
+
+    private void launchUrl(String url) {
+        if (url == null || url.isEmpty()) return;
+        // Alarmas/temporizadores: ponerlos en SILENCIO (SKIP_UI) directamente desde
+        // el servicio. Abrir el reloj desde segundo plano lo bloquea ColorOS, pero
+        // SET_ALARM con skip_ui lo crea sin abrir nada. Confirmamos por voz.
+        if (url.startsWith("jarvis-alarm://") || url.startsWith("jarvis-timer://")) {
+            setClock(url);
+            return;
+        }
+        if (url.startsWith("jarvis-volume://")) {
+            setVolume(url.substring("jarvis-volume://".length()));
+            return;
+        }
+        if (url.startsWith("jarvis-ringer://")) {
+            setRinger(url.substring("jarvis-ringer://".length()));
+            return;
+        }
+        if (url.startsWith("jarvis-lock://")) {
+            lockDevice();
+            return;
+        }
+        if (url.startsWith("jarvis-torch://")) {
+            setTorch(url.substring("jarvis-torch://".length()));
+            return;
+        }
+        if (url.startsWith("jarvis-battery://")) {
+            sayBattery();
+            return;
+        }
+        if (url.startsWith("jarvis-conv://")) {
+            boolean on = url.substring("jarvis-conv://".length()).startsWith("on");
+            convMode = on;
+            speak(on ? "Modo conversacion activado. Dime." : "Vale, hasta luego.");
+            return;
+        }
+        Intent t = new Intent(this, TrampolineActivity.class);
+        t.putExtra("url", url);
+        t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+        try { startActivity(t); } catch (Exception ignored) {}
+    }
+
+    private void setVolume(String path) {
+        try {
+            // path = "music/up", "alarm/max", "ring/set:30"...
+            String streamName = "music", act = path;
+            int slash = path.indexOf('/');
+            if (slash >= 0) { streamName = path.substring(0, slash); act = path.substring(slash + 1); }
+            int stream = AudioManager.STREAM_MUSIC;
+            if ("alarm".equals(streamName)) stream = AudioManager.STREAM_ALARM;
+            else if ("ring".equals(streamName)) stream = AudioManager.STREAM_RING;
+            else if ("notif".equals(streamName)) stream = AudioManager.STREAM_NOTIFICATION;
+
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(stream);
+            int flag = AudioManager.FLAG_SHOW_UI;
+            if ("up".equals(act)) {
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, flag);
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_RAISE, flag);
+            } else if ("down".equals(act)) {
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, flag);
+                am.adjustStreamVolume(stream, AudioManager.ADJUST_LOWER, flag);
+            } else if ("max".equals(act)) {
+                am.setStreamVolume(stream, max, flag);
+            } else if ("mute".equals(act)) {
+                am.setStreamVolume(stream, 0, flag);
+            } else if (act.startsWith("set:")) {
+                int pct = Integer.parseInt(act.substring(4));
+                am.setStreamVolume(stream, Math.round(max * pct / 100f), flag);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void setRinger(String mode) {
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            // El silencio/vibracion necesita acceso a "No molestar" en Android 6+
+            if ((mode.equals("silent") || mode.equals("vibrate"))
+                    && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                    && nm != null && !nm.isNotificationPolicyAccessGranted()) {
+                Intent i = new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(i); } catch (Exception ignored) {}
+                speak("Dale permiso a Jarvis para No molestar y vuelve a intentarlo");
+                return;
+            }
+            int m = AudioManager.RINGER_MODE_NORMAL;
+            String say = "Sonido activado";
+            if (mode.equals("silent")) { m = AudioManager.RINGER_MODE_SILENT; say = "Modo silencio"; }
+            else if (mode.equals("vibrate")) { m = AudioManager.RINGER_MODE_VIBRATE; say = "Modo vibracion"; }
+            am.setRingerMode(m);
+            speak(say);
+        } catch (Exception e) {
+            speak("No he podido cambiar el modo");
+        }
+    }
+
+    private boolean torchOn = false;
+
+    private void setTorch(String act) {
+        try {
+            CameraManager cm = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            String camId = null;
+            for (String id : cm.getCameraIdList()) {
+                Boolean has = cm.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE);
+                Integer facing = cm.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING);
+                if (Boolean.TRUE.equals(has)
+                        && (facing == null || facing == CameraCharacteristics.LENS_FACING_BACK)) {
+                    camId = id; break;
+                }
+            }
+            if (camId == null) { speak("Este movil no tiene linterna"); return; }
+            boolean target = "on".equals(act) || (!"off".equals(act) && !torchOn);
+            cm.setTorchMode(camId, target);
+            torchOn = target;
+        } catch (Exception e) {
+            speak("No he podido usar la linterna");
+        }
+    }
+
+    private void sayBattery() {
+        try {
+            BatteryManager bm = (BatteryManager) getSystemService(Context.BATTERY_SERVICE);
+            int pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            speak("Tienes el " + pct + " por ciento de bateria");
+        } catch (Exception e) {
+            speak("No he podido leer la bateria");
+        }
+    }
+
+    private void lockDevice() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(Context.DEVICE_POLICY_SERVICE);
+            ComponentName admin = new ComponentName(this, JarvisAdmin.class);
+            if (dpm != null && dpm.isAdminActive(admin)) {
+                dpm.lockNow();
+            } else {
+                Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+                i.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
+                i.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                        "Permite a Jarvis bloquear el movil por voz");
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(i); } catch (Exception ignored) {}
+                speak("Activa el permiso para que pueda bloquear el movil");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void setClock(String url) {
+        try {
+            Intent intent;
+            String confirm;
+            if (url.startsWith("jarvis-alarm://")) {
+                String[] hm = url.substring("jarvis-alarm://".length()).split(":");
+                int h = Integer.parseInt(hm[0]);
+                int m = hm.length > 1 ? Integer.parseInt(hm[1]) : 0;
+                intent = new Intent(android.provider.AlarmClock.ACTION_SET_ALARM);
+                intent.putExtra(android.provider.AlarmClock.EXTRA_HOUR, h);
+                intent.putExtra(android.provider.AlarmClock.EXTRA_MINUTES, m);
+                intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
+                confirm = String.format(Locale.ROOT, "Alarma puesta a las %d %02d", h, m);
+            } else {
+                int secs = Integer.parseInt(url.substring("jarvis-timer://".length()));
+                intent = new Intent(android.provider.AlarmClock.ACTION_SET_TIMER);
+                intent.putExtra(android.provider.AlarmClock.EXTRA_LENGTH, secs);
+                intent.putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, true);
+                int mins = secs / 60;
+                confirm = mins > 0 ? "Temporizador de " + mins + " minutos" : "Temporizador de " + secs + " segundos";
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(intent);
+            speak(confirm);
+        } catch (Exception e) {
+            speak("No he podido poner la alarma");
+        }
+    }
+
+    // ---- Utilidades ----
+
+    /** Normaliza por pico: sube cada frase a un nivel fuerte y constante para
+     *  Whisper (voz floja/lejana se amplifica mas), con tope anti-ruido. */
+    private void normalize(byte[] pcm) {
+        int maxAbs = 1;
+        for (int i = 0; i + 1 < pcm.length; i += 2) {
+            int s = (short) ((pcm[i] & 0xff) | (pcm[i + 1] << 8));
+            int a = Math.abs(s);
+            if (a > maxAbs) maxAbs = a;
+        }
+        float gain = (float) NORM_TARGET / maxAbs;
+        if (gain > NORM_MAX_GAIN) gain = NORM_MAX_GAIN;
+        if (gain <= 1.0f) return; // ya viene fuerte: no tocar
+        for (int i = 0; i + 1 < pcm.length; i += 2) {
+            int s = (short) ((pcm[i] & 0xff) | (pcm[i + 1] << 8));
+            int v = (int) (s * gain);
+            if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+            pcm[i] = (byte) (v & 0xff);
+            pcm[i + 1] = (byte) ((v >> 8) & 0xff);
+        }
+    }
+
+    private byte[] wrapWav(byte[] pcm) {
+        normalize(pcm);
+        int len = pcm.length;
+        int rate = SAMPLE_RATE, ch = 1, bits = 16;
+        int byteRate = rate * ch * bits / 8;
+        ByteArrayOutputStream o = new ByteArrayOutputStream();
+        try {
+            o.write(new byte[]{'R','I','F','F'});
+            writeInt(o, 36 + len);
+            o.write(new byte[]{'W','A','V','E','f','m','t',' '});
+            writeInt(o, 16); writeShort(o, 1); writeShort(o, ch);
+            writeInt(o, rate); writeInt(o, byteRate);
+            writeShort(o, ch * bits / 8); writeShort(o, bits);
+            o.write(new byte[]{'d','a','t','a'});
+            writeInt(o, len);
+            o.write(pcm);
+        } catch (Exception ignored) {}
+        return o.toByteArray();
+    }
+
+    private void writeInt(ByteArrayOutputStream o, int v) {
+        o.write(v & 0xff); o.write((v >> 8) & 0xff); o.write((v >> 16) & 0xff); o.write((v >> 24) & 0xff);
+    }
+    private void writeShort(ByteArrayOutputStream o, int v) { o.write(v & 0xff); o.write((v >> 8) & 0xff); }
+
+    private void beep(int freqUnused, int ms) {
+        try { if (tone != null) tone.startTone(ToneGenerator.TONE_PROP_BEEP, ms); } catch (Exception ignored) {}
+    }
+
+    private void speak(String text) { speak(text, null); }
+
+    private void speak(String text, String voice) {
+        if (text == null || text.isEmpty()) return;
+        // Garantizar que se oiga: si el volumen multimedia esta silenciado o muy
+        // bajo, subirlo a un nivel audible antes de hablar (si no, Jarvis "no habla")
+        try {
+            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            if (cur < Math.max(1, max / 4)) {
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(max * 0.5f), 0);
+            }
+        } catch (Exception ignored) {}
+        // 1) Voz del servidor (masculina; voice!=null para traducciones en otro idioma).
+        //    2) Si la red falla, TTS local.
+        if (speakServer(text, voice)) return;
+        if (tts != null) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis");
+    }
+
+    /** Reproduce la voz generada en el servidor (MP3 via /api/tts). true si arranco. */
+    private boolean speakServer(String text, String voice) {
+        if (apiBase == null || apiBase.isEmpty()) return false;
+        stopPlayer();
+        MediaPlayer mp = null;
+        try {
+            String url = apiBase + "/api/tts?text=" + URLEncoder.encode(text, "UTF-8");
+            if (voice != null && !voice.isEmpty())
+                url += "&voice=" + URLEncoder.encode(voice, "UTF-8");
+            mp = new MediaPlayer();
+            mp.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            mp.setDataSource(url);
+            mp.setOnErrorListener((p, what, extra) -> true);
+            mp.prepare();   // sincrono: si red/servidor fallan, lanza -> fallback TTS local
+            ttsPlayer = mp;
+            mp.start();
+            return true;
+        } catch (Exception e) {
+            if (mp != null) { try { mp.release(); } catch (Exception ignored) {} }
+            ttsPlayer = null;
+            return false;
+        }
+    }
+
+    private void stopPlayer() {
+        MediaPlayer p = ttsPlayer;
+        ttsPlayer = null;
+        if (p != null) {
+            try { p.stop(); } catch (Exception ignored) {}
+            try { p.release(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** true si Jarvis esta hablando ahora (voz de servidor o TTS local). */
+    private boolean ttsBusy() {
+        try { MediaPlayer p = ttsPlayer; if (p != null && p.isPlaying()) return true; } catch (Exception ignored) {}
+        try { if (tts != null && tts.isSpeaking()) return true; } catch (Exception ignored) {}
+        return false;
+    }
+
+    private void stopSpeaking() {
+        stopPlayer();
+        try { if (tts != null) tts.stop(); } catch (Exception ignored) {}
+    }
+
+    private static final Pattern STOP_RE = Pattern.compile(
+            "\\b(para|parate|para ya|calla|callate|calla ya|basta|ya basta|silencio|stop|"
+            + "ya esta|vale ya|ya vale|dejalo|deja de hablar|para de hablar|no sigas|corta|"
+            + "quieto|chiss?|shh?)\\b");
+
+    /** Espera a que el TTS acabe, pero escuchando por si dices "para" para cortarlo. */
+    private void waitTtsIdle(AudioRecord recorder) {
+        long t0 = System.currentTimeMillis();
+        try {
+            // Espera corta antes de escuchar "para" (rapido pero sin cortar las
+            // confirmaciones cortas). El AEC cancela la propia voz de Jarvis.
+            Thread.sleep(900);
+            while (running && ttsBusy() && System.currentTimeMillis() - t0 < 30000) {
+                Segment seg = recordSegment(recorder, 1000);
+                if (!running) break;
+                if (seg != null && seg.hadSpeech && seg.pcm.length >= MIN_PCM_BYTES) {
+                    String t = safeTranscribe(wrapWav(seg.pcm));
+                    if (t != null) {
+                        String norm = Normalizer.normalize(t.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                                .replaceAll("\\p{Mn}", "").trim();
+                        // Solo cortar si es una frase CORTA (una orden real "para"),
+                        // no las propias frases largas de Jarvis que capta por eco
+                        int words = norm.isEmpty() ? 0 : norm.split("\\s+").length;
+                        if (words > 0 && words <= 3 && STOP_RE.matcher(norm).find()) {
+                            stopSpeaking();
+                            sendLog(t, "detenido");
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (InterruptedException ignored) {}
+    }
+
+    private void sendLog(String text, String status) {
+        BackgroundListeningPlugin.sendLog(text, status);
+    }
+
+    @Override
+    public void onDestroy() {
+        running = false;
+        if (audioThread != null) audioThread.interrupt();
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        stopPlayer();
+        if (tts != null) { tts.shutdown(); tts = null; }
+        if (tone != null) { tone.release(); tone = null; }
+        super.onDestroy();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) { return null; }
+}

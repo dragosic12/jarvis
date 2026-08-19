@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="title_activity_main">Jarvis</string>
+    <string name="package_name">com.drale.jarvis</string>
+    <string name="custom_url_scheme">com.drale.jarvis</string>
+    <string name="a11y_desc">Permite a Jarvis ejecutar acciones del sistema (atras, inicio, cambiar de app, abrir apps) cuando la camara detecta un gesto facial. Solo actua con el control por gestos activado.</string>
+</resources>

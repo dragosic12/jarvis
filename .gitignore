@@ -1,0 +1,41 @@
+# ==== SECRETOS (NUNCA subir) ====
+backend/.groq_key
+backend/.claude_voice_session
+android-keys/
+**/keystore.properties
+**/*.keystore
+**/.credentials*
+**/*.credentials.json
+
+# ==== DATOS PERSONALES ====
+*.db
+backend/tts_cache/
+
+# ==== DEPENDENCIAS / BUILDS ====
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/capacitor-cordova-android-plugins/
+frontend/android/local.properties
+frontend/android/app/release/
+**/*.apk
+**/*.aab
+
+# ==== LOGS / TEMP ====
+*.log
+.DS_Store
+*.tmp
+*.part
+
+# gradle caches / distribucion (basura)
+**/.gradle-docker/
+**/.gradle/
+frontend/android/.gradle*
+frontend/android/capacitor.settings.gradle
+
+# python
+__pycache__/
+*.pyc

@@ -1,0 +1,381 @@
+"""
+Ejecutor de acciones: recibe la intencion parseada y ejecuta la accion correspondiente.
+"""
+
+import subprocess
+import webbrowser
+import urllib.parse
+from database import get_db
+
+
+def execute_action(intent: dict, target_platform: str = "linux") -> dict:
+    """
+    Ejecuta la accion asociada al intent.
+    target_platform: "linux" (servidor) o "windows" (remoto)
+    Devuelve: {"success": bool, "message": str, "data": any}
+    """
+    if not intent.get("matched"):
+        return {"success": False, "message": intent.get("error", "Comando no reconocido"), "data": None}
+
+    action_type = intent["action_type"]
+    action_value = intent["action_value"]
+    query = intent.get("query")
+
+    # Apagar el ordenador es destructivo: pedir confirmacion en pantalla
+    if intent.get("category") == "apagar" and action_type == "server_cmd":
+        return {
+            "success": True,
+            "message": "Apagar el ordenador — requiere confirmacion",
+            "data": {
+                "needs_confirm": True,
+                "action": "apagar el ordenador",
+                "command": action_value,
+            },
+        }
+
+    try:
+        if action_type == "url":
+            return _handle_url(action_value, target_platform)
+
+        elif action_type in ("time", "say"):
+            return {"success": True, "message": action_value,
+                    "data": {"type": "spoken_response", "text": action_value}}
+
+        elif action_type == "usage":
+            from claude_usage import usage_speech
+            txt = usage_speech()
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "weather":
+            from weather import weather_speech
+            txt = weather_speech()
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "briefing":
+            txt = _handle_briefing()
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "translate":
+            from translate import translate as _tr, VOICE_BY_CODE
+            try:
+                txt = _tr(action_value, query)
+            except Exception:
+                m = "No he podido traducir ahora mismo."
+                return {"success": False, "message": m,
+                        "data": {"type": "spoken_response", "text": m}}
+            voice = VOICE_BY_CODE.get(query, "es-ES-AlvaroNeural")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt, "voice": voice}}
+
+        elif action_type == "claude_chat":
+            return _handle_claude_chat(action_value)
+
+        elif action_type == "claude_agent":
+            return _handle_claude_agent(action_value)
+
+        elif action_type == "pc_open":
+            return _handle_pc_open(action_value)
+
+        elif action_type == "search":
+            return _handle_search(action_value, query, target_platform)
+
+        elif action_type == "shell":
+            return _handle_shell(action_value, target_platform)
+
+        elif action_type == "server_cmd":
+            return _handle_server_cmd(action_value)
+
+        elif action_type == "system":
+            return _handle_system(action_value, target_platform)
+
+        elif action_type == "claude":
+            return _handle_claude(action_value)
+
+        elif action_type == "device":
+            return _handle_device(action_value)
+
+        elif action_type == "question":
+            return _handle_question(action_value)
+
+        else:
+            return {"success": False, "message": f"Tipo de accion desconocido: {action_type}", "data": None}
+
+    except Exception as e:
+        return {"success": False, "message": f"Error ejecutando: {str(e)}", "data": None}
+    finally:
+        _log_execution(intent, action_type)
+
+
+def _handle_url(url: str, platform: str) -> dict:
+    if platform == "windows":
+        return {
+            "success": True,
+            "message": f"Abriendo {url}",
+            "data": {"type": "open_url", "url": url},
+            "remote_action": True,
+        }
+    # En el servidor, devolver la URL para que el frontend la abra
+    return {
+        "success": True,
+        "message": f"Abriendo {url}",
+        "data": {"type": "open_url", "url": url},
+    }
+
+
+def _handle_search(url_template: str, query: str, platform: str) -> dict:
+    if not query:
+        return {"success": False, "message": "No se especifico que buscar", "data": None}
+    # Esquemas de app (spotify:, vnd.youtube:, intent:) quieren %20; http quiere +
+    if url_template.startswith("http"):
+        q = urllib.parse.quote_plus(query)
+    else:
+        q = urllib.parse.quote(query, safe="")
+    url = url_template.replace("{query}", q)
+    return {
+        "success": True,
+        "message": f"Buscando: {query}",
+        "data": {"type": "open_url", "url": url},
+    }
+
+
+def _handle_shell(cmd: str, platform: str) -> dict:
+    if platform == "windows":
+        return {
+            "success": True,
+            "message": f"Ejecutando en Windows: {cmd}",
+            "data": {"type": "shell_cmd", "command": cmd},
+            "remote_action": True,
+        }
+    # Ejecutar en servidor Linux
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=15
+        )
+        return {
+            "success": result.returncode == 0,
+            "message": f"Ejecutado: {cmd}",
+            "data": {"stdout": result.stdout, "stderr": result.stderr},
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": f"Timeout ejecutando: {cmd}", "data": None}
+
+
+def _handle_server_cmd(cmd: str) -> dict:
+    """Ejecutar comando en el servidor Linux."""
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout or result.stderr
+        return {
+            "success": result.returncode == 0,
+            "message": output.strip() if output else "Ejecutado sin salida",
+            "data": {"stdout": result.stdout, "stderr": result.stderr, "command": cmd},
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": f"Timeout: {cmd}", "data": None}
+
+
+def _handle_system(action: str, platform: str) -> dict:
+    """Acciones de sistema: suspender, apagar, reiniciar, bloquear."""
+    cmds = {
+        "linux": {
+            "suspend": "systemctl suspend",
+            "shutdown": "shutdown -h now",
+            "reboot": "reboot",
+            "lock": "loginctl lock-session",
+        },
+        "windows": {
+            "suspend": "rundll32.exe powrprof.dll,SetSuspendState 0,1,0",
+            "shutdown": "shutdown /s /t 5",
+            "reboot": "shutdown /r /t 5",
+            "lock": "rundll32.exe user32.dll,LockWorkStation",
+        }
+    }
+
+    if platform == "windows":
+        cmd = cmds["windows"].get(action)
+        return {
+            "success": True,
+            "message": f"Enviando comando sistema a Windows: {action}",
+            "data": {"type": "shell_cmd", "command": cmd},
+            "remote_action": True,
+        }
+
+    cmd = cmds["linux"].get(action)
+    if not cmd:
+        return {"success": False, "message": f"Accion de sistema desconocida: {action}", "data": None}
+
+    # Requiere confirmacion para acciones destructivas
+    return {
+        "success": True,
+        "message": f"Accion de sistema: {action}",
+        "data": {"type": "system_action", "action": action, "command": cmd, "needs_confirm": True},
+    }
+
+
+def _handle_claude_chat(prompt: str) -> dict:
+    """Conversar con Claude por voz manteniendo el HILO (recuerda contexto)."""
+    import os
+    script = os.path.join(os.path.dirname(__file__), "claude_chat.sh")
+    try:
+        r = subprocess.run([script, prompt], capture_output=True, text=True,
+                           timeout=28, start_new_session=True)
+        ans = (r.stdout or "").strip()
+        if not ans:
+            ans = "No he podido responder ahora mismo."
+    except subprocess.TimeoutExpired:
+        ans = "Claude ha tardado demasiado."
+    return {"success": True, "message": ans, "data": {"type": "spoken_response", "text": ans}}
+
+
+def _handle_claude_agent(task: str) -> dict:
+    """Lanzar a Claude como AGENTE (hace tareas en el repo). Fire-and-forget."""
+    import os
+    script = os.path.join(os.path.dirname(__file__), "claude_agent.sh")
+    try:
+        subprocess.Popen([script, task], start_new_session=True)
+    except Exception:
+        pass
+    msg = "Vale, se lo digo a Claude. Se pone con ello."
+    return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
+
+
+def _pc_target_to_url(target: str) -> str:
+    from urllib.parse import quote_plus
+    t = target.lower().strip()
+    known = {"youtube": "https://youtube.com", "spotify": "https://open.spotify.com",
+             "gmail": "https://mail.google.com", "whatsapp": "https://web.whatsapp.com",
+             "netflix": "https://netflix.com", "instagram": "https://instagram.com",
+             "twitch": "https://twitch.tv", "chatgpt": "https://chatgpt.com",
+             "claude": "https://claude.ai", "maps": "https://maps.google.com",
+             "amazon": "https://amazon.es", "twitter": "https://x.com", "github": "https://github.com"}
+    for k, v in known.items():
+        if k in t:
+            return v
+    first = t.split()[0] if t.split() else t
+    if first.startswith("http"):
+        return target
+    if "." in first and " " not in t:
+        return "https://" + t
+    return "https://www.google.com/search?q=" + quote_plus(target)
+
+
+def _handle_pc_open(target: str) -> dict:
+    """Abrir una web/app en el sobremesa Windows por SSH (Start-Process)."""
+    url = _pc_target_to_url(target)
+    try:
+        subprocess.run(
+            ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+             "user@192.168.1.50", "powershell", "-Command", f"Start-Process '{url}'"],
+            capture_output=True, text=True, timeout=12,
+        )
+        msg = f"Abriendo {target} en el ordenador."
+    except Exception:
+        msg = "No he podido abrirlo en el ordenador. Comprueba que esta encendido."
+    return {"success": True, "message": msg, "data": {"type": "spoken_response", "text": msg}}
+
+
+def _handle_device(action: str) -> dict:
+    """Acciones de dispositivo movil: camara, linterna, etc."""
+    return {
+        "success": True,
+        "message": f"Accion de dispositivo: {action}",
+        "data": {"type": "device_action", "action": action},
+    }
+
+
+def _handle_briefing() -> str:
+    """Saludo segun la hora + hora + tiempo + uso de Claude, en una frase hablada."""
+    import datetime
+    now = datetime.datetime.now()
+    h, m = now.hour, now.minute
+    saludo = "Buenos dias" if 5 <= h < 12 else ("Buenas tardes" if 12 <= h < 21 else "Buenas noches")
+    hora = f"Son las {h}" + (" en punto" if m == 0 else f" y {m}")
+    parts = [f"{saludo}. {hora}."]
+    try:
+        from weather import weather_now
+        parts.append("Ahora mismo " + weather_now() + ".")
+    except Exception:
+        pass
+    try:
+        from claude_usage import fetch_usage
+        d = fetch_usage()
+        w = max(0, min(100, round(100 - (d.get("seven_day", {}).get("utilization") or 0))))
+        parts.append(f"Y te queda el {w} por ciento de Claude esta semana.")
+    except Exception:
+        pass
+    return " ".join(parts)
+
+
+def _handle_question(question: str) -> dict:
+    """Responder preguntas usando Claude CLI con Haiku (sin API key, usa OAuth Pro)."""
+    import os
+    env = {k: v for k, v in os.environ.items()}
+    env.pop("ANTHROPIC_API_KEY", None)  # Forzar OAuth, no API key
+    env["TERM"] = "dumb"
+    try:
+        script_path = os.path.join(os.path.dirname(__file__), "claude_ask.sh")
+        prompt = f"Responde breve y conciso en espanol (2-3 frases, sin emojis, sin markdown): {question}"
+        result = subprocess.run(
+            [script_path, prompt],
+            capture_output=True, text=True, timeout=30, env=env,
+            start_new_session=True,
+        )
+        answer = result.stdout.strip()
+        if result.returncode != 0 or not answer:
+            stderr = result.stderr.strip()
+            if stderr:
+                answer = f"Error: {stderr[:200]}"
+            else:
+                answer = "No pude obtener una respuesta ahora."
+        return {
+            "success": result.returncode == 0 and bool(result.stdout.strip()),
+            "message": answer,
+            "data": {"type": "spoken_response", "text": answer, "question": question},
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "La respuesta tardo demasiado.", "data": {"type": "spoken_response", "text": "La respuesta tardó demasiado."}}
+    except FileNotFoundError:
+        return {"success": False, "message": "Claude CLI no disponible.", "data": {"type": "info", "text": "Claude CLI no esta instalado."}}
+
+
+def _handle_claude(action: str) -> dict:
+    """Interaccion con Claude CLI."""
+    if action == "new":
+        return {
+            "success": True,
+            "message": "Para iniciar nueva conversacion Claude, usa el terminal",
+            "data": {"type": "info", "text": "Claude CLI: claude (nueva sesion)"},
+        }
+    elif action == "continue":
+        return {
+            "success": True,
+            "message": "Para continuar conversacion Claude, usa: claude --continue",
+            "data": {"type": "info", "text": "Claude CLI: claude --continue"},
+        }
+    return {"success": False, "message": f"Accion Claude desconocida: {action}", "data": None}
+
+
+def _log_execution(intent: dict, action_type: str):
+    """Guarda log de ejecucion."""
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT INTO command_log (transcript, matched_command_id, category, action_executed, result, success) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                intent.get("raw_text"),
+                intent.get("command_id"),
+                intent.get("category"),
+                f"{action_type}:{intent.get('action_value', '')}",
+                "ok",
+                1 if intent.get("matched") else 0,
+            )
+        )
+        db.commit()
+        db.close()
+    except Exception:
+        pass

@@ -1,0 +1,12 @@
+{
+  "appId": "com.drale.jarvis",
+  "appName": "Jarvis",
+  "webDir": "dist",
+  "server": {
+    "url": "https://jarvis.swapcar.app",
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

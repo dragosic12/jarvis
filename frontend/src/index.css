@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --j-bg: #070714;
+  --j-cyan: #22d3ee;
+  --j-indigo: #6366f1;
+  --j-violet: #a855f7;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body {
+  font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--j-bg);
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Tipografia futurista para el logo y titulares HUD */
+.font-display {
+  font-family: 'Orbitron', 'Rajdhani', sans-serif;
+  letter-spacing: 0.14em;
+}
+
+/* ======================= FONDO FUTURISTA ANIMADO ======================= */
+.jarvis-bg-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 620px at 50% -12%, rgba(99,102,241,0.20), transparent 60%),
+    radial-gradient(900px 520px at 105% 108%, rgba(34,211,238,0.13), transparent 60%),
+    radial-gradient(760px 520px at -8% 82%, rgba(168,85,247,0.12), transparent 60%),
+    var(--j-bg);
+}
+/* rejilla HUD que se desplaza lentamente */
+.jarvis-bg-fx::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  background-image:
+    linear-gradient(rgba(99,102,241,0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99,102,241,0.055) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(circle at 50% 28%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(circle at 50% 28%, #000 0%, transparent 72%);
+  animation: grid-pan 42s linear infinite;
+}
+@keyframes grid-pan { from { transform: translateY(0); } to { transform: translateY(46px); } }
+
+.jarvis-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.55;
+  animation: orb-float 20s ease-in-out infinite;
+}
+@keyframes orb-float {
+  0%,100% { transform: translate(0,0) scale(1); }
+  33% { transform: translate(34px,-46px) scale(1.18); }
+  66% { transform: translate(-24px,32px) scale(0.88); }
+}
+
+/* ======================= LOGO / TITULO ======================= */
+.jarvis-title {
+  font-family: 'Orbitron', sans-serif;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  background: linear-gradient(100deg, #67e8f9 0%, #818cf8 38%, #c084fc 62%, #22d3ee 100%);
+  background-size: 260% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: title-shine 6s linear infinite;
+  filter: drop-shadow(0 0 14px rgba(99,102,241,0.35));
+}
+@keyframes title-shine { to { background-position: 260% center; } }
+
+/* Nucleo tipo reactor: anillo giratorio con brillo, sustituye a la "J" plana */
+.jarvis-core {
+  position: relative;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(34,211,238,0.9), rgba(99,102,241,0.55) 45%, rgba(15,15,35,0.1) 70%);
+  box-shadow:
+    0 0 12px rgba(34,211,238,0.55),
+    0 0 26px rgba(99,102,241,0.35),
+    inset 0 0 10px rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+}
+.jarvis-core::before {
+  content: '';
+  position: absolute; inset: -3px;
+  border-radius: 9999px;
+  border: 1.5px solid transparent;
+  border-top-color: rgba(103,232,249,0.95);
+  border-right-color: rgba(129,140,248,0.6);
+  animation: core-spin 3.2s linear infinite;
+}
+.jarvis-core::after {
+  content: '';
+  position: absolute; inset: 2px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,0.14);
+}
+@keyframes core-spin { to { transform: rotate(360deg); } }
+
+/* punto "en vivo" que late */
+.live-dot {
+  width: 7px; height: 7px; border-radius: 9999px;
+  background: #22d3ee;
+  box-shadow: 0 0 8px #22d3ee, 0 0 14px rgba(34,211,238,0.7);
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
+
+/* ======================= MICROFONO / RADAR ======================= */
+/* anillos de radar que se expanden cuando escucha */
+.radar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  opacity: 0;
+  animation: radar 2.4s ease-out infinite;
+}
+@keyframes radar {
+  0% { transform: scale(0.65); opacity: 0.7; }
+  80% { opacity: 0.06; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+/* halo que respira detras del boton */
+.mic-halo {
+  position: absolute;
+  inset: -18px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(34,211,238,0.35), transparent 68%);
+  animation: breathe 3.4s ease-in-out infinite;
+  pointer-events: none;
+}
+.mic-halo.armed { background: radial-gradient(circle, rgba(239,68,68,0.4), transparent 68%); }
+@keyframes breathe {
+  0%,100% { transform: scale(0.92); opacity: 0.55; }
+  50% { transform: scale(1.12); opacity: 0.9; }
+}
+
+/* puntos "escuchando..." */
+.dot-flow span {
+  display: inline-block;
+  animation: dot-flow 1.2s ease-in-out infinite;
+}
+.dot-flow span:nth-child(2) { animation-delay: 0.15s; }
+.dot-flow span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dot-flow {
+  0%,100% { opacity: 0.2; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+/* ======================= SUPERFICIES ======================= */
+.glass {
+  background: rgba(20,22,42,0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.glow-border { box-shadow: 0 0 0 1px rgba(34,211,238,0.35), 0 0 18px rgba(34,211,238,0.18); }
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-bg-fx::before, .jarvis-orb, .jarvis-title, .jarvis-core::before,
+  .radar-ring, .mic-halo, .live-dot, .dot-flow span { animation: none !important; }
+}
