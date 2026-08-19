@@ -515,28 +515,51 @@ public class ListeningService extends Service {
         try { startActivity(t); } catch (Exception ignored) {}
     }
 
-    // ---- Grabador de rutinas (FASE 1) ----
+    // ---- Grabador de rutinas (FASE 1 grabar, FASE 2 analizar, FASE 3 nombrar+reproducir) ----
 
-    /** "aprende esta rutina" / "graba una rutina" (record-start), "termina la
-     *  rutina" / "guarda la rutina" (record-stop), "lista mis rutinas" (list).
-     *  La captura la hace JarvisA11yService; aqui solo se arma/desarma y se
-     *  guarda/consulta lo grabado (RoutineRecorder), todo en el propio movil. */
+    /** Controla el grabador de rutinas por voz:
+     *  - "aprende esta rutina" / "graba una rutina"        -> record-start
+     *  - "termina la rutina" / "guarda la rutina"           -> record-stop (nombre automatico)
+     *  - "guarda la rutina como X" / "...y llamala X"       -> record-stop:X (con nombre)
+     *  - "lista mis rutinas"                                -> list
+     *  - "analiza mis rutinas" / "que hago mas repetido"    -> analyze (FASE 2)
+     *  - "haz/ejecuta/reproduce la rutina X"                -> play:X (FASE 3)
+     *  La captura y la reproduccion las hace JarvisA11yService; aqui solo se
+     *  arma/desarma y se guarda/consulta/analiza lo grabado (RoutineRecorder),
+     *  todo en el propio movil. */
     private void handleRoutine(String action) {
         if (!JarvisA11yService.isReady()) {
-            speak("Necesito el servicio de accesibilidad Jarvis Gestos activado para grabar rutinas.");
+            speak("Necesito el servicio de accesibilidad Jarvis Gestos activado para las rutinas.");
             return;
         }
         if (action.startsWith("record-start")) {
             RoutineRecorder.startRecording();
             speak("Vale, grabando la rutina. Dime termina la rutina cuando acabes.");
         } else if (action.startsWith("record-stop")) {
-            int n = RoutineRecorder.stopRecording(this);
-            if (n <= 0) speak("No he grabado ningun paso, no he guardado nada.");
-            else speak("Rutina guardada con " + n + " " + (n == 1 ? "paso" : "pasos") + ".");
+            String name = null;
+            int colon = action.indexOf(':');
+            if (colon >= 0 && colon + 1 < action.length()) name = action.substring(colon + 1);
+            int n = RoutineRecorder.stopRecording(this, name);
+            String spokenName = name == null ? null : name.replace('_', ' ').trim();
+            if (n <= 0) {
+                speak("No he grabado ningun paso, no he guardado nada.");
+            } else if (spokenName != null && !spokenName.isEmpty()) {
+                speak("Rutina " + spokenName + " guardada con " + n + " " + (n == 1 ? "paso" : "pasos") + ".");
+            } else {
+                speak("Rutina guardada con " + n + " " + (n == 1 ? "paso" : "pasos") + ".");
+            }
         } else if (action.startsWith("list")) {
             int n = RoutineRecorder.countRoutines(this);
             if (n <= 0) speak("Todavia no tienes ninguna rutina guardada.");
             else speak("Tienes " + n + " " + (n == 1 ? "rutina guardada" : "rutinas guardadas") + ".");
+        } else if (action.startsWith("analyze")) {
+            speak(RoutineRecorder.analyzeSpoken(this));
+        } else if (action.startsWith("play:")) {
+            String name = action.substring("play:".length());
+            // La confirmacion ("Ejecutando..."/"No encuentro...") y el aviso
+            // de fin la habla JarvisA11yService via routineAnnounce(), porque
+            // la reproduccion corre en su propio hilo (puede tardar).
+            JarvisA11yService.playRoutine(name);
         }
     }
 
@@ -903,6 +926,15 @@ public class ListeningService extends Service {
     public static boolean isCarMode() {
         ListeningService s = self;
         return s != null && s.carMode;
+    }
+
+    /** Para que JarvisA11yService pueda hablar el resultado de reproducir una
+     *  rutina (FASE 3) desde su propio hilo de reproduccion, sin acoplarse a
+     *  ListeningService mas alla de esta unica via (mismo patron que
+     *  carAnnounce() para el modo coche). */
+    public static void routineAnnounce(String text) {
+        ListeningService s = self;
+        if (s != null) s.speak(text);
     }
 
     private void stopPlayer() {

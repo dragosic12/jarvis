@@ -11,7 +11,11 @@ import android.util.DisplayMetrics;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Servicio de Accesibilidad: la UNICA via para ejecutar acciones del sistema
@@ -165,6 +169,197 @@ public class JarvisA11yService extends AccessibilityService {
             if (r != null) return r;
         }
         return null;
+    }
+
+    // ==================== FASE 3: reproducir rutinas por voz ====================
+
+    private static final int MAX_PLAY_STEPS = 200;        // tope de pasos por reproduccion
+    private static final long MAX_PLAY_MS = 5 * 60_000L;  // tope duro de duracion (5 min)
+    private static volatile boolean playing = false;
+
+    public static boolean isPlaying() { return playing; }
+
+    /** Reproduce una rutina guardada (por su slug) reejecutando sus pasos:
+     *  cambios de app -> launch(pkg); clicks/scrolls -> localizar el nodo y
+     *  performAction(), con fallback a un tap por coordenada grabada. Corre
+     *  en un hilo aparte para no bloquear el pipeline de voz; el resultado
+     *  (empieza/termina/error/no encontrada) se anuncia por voz a traves de
+     *  ListeningService.routineAnnounce() -- mismo patron que el modo coche. */
+    public static void playRoutine(String rawSlug) {
+        String slug = rawSlug == null ? "" : rawSlug.trim();
+        String spoken = slug.replace('_', ' ').trim();
+        if (instance == null) {
+            ListeningService.routineAnnounce("Necesito el servicio de accesibilidad Jarvis Gestos activado para reproducir rutinas.");
+            return;
+        }
+        if (playing) {
+            ListeningService.routineAnnounce("Ya estoy con una rutina, espera a que termine.");
+            return;
+        }
+        JSONObject data = RoutineRecorder.loadRoutine(instance, slug);
+        if (data == null) {
+            ListeningService.routineAnnounce("No encuentro ninguna rutina llamada "
+                    + (spoken.isEmpty() ? "esa" : spoken) + ".");
+            return;
+        }
+        final JarvisA11yService svc = instance;
+        playing = true;
+        ListeningService.routineAnnounce("Ejecutando la rutina " + spoken + ".");
+        new Thread(() -> {
+            boolean ok;
+            try {
+                svc.runRoutineSteps(data);
+                ok = true;
+            } catch (Exception e) {
+                ok = false;
+            } finally {
+                playing = false;
+            }
+            ListeningService.routineAnnounce(ok ? "Rutina " + spoken + " terminada."
+                    : "La rutina " + spoken + " se ha parado por un error.");
+        }, "JarvisRoutinePlay").start();
+    }
+
+    /** Reproduce, en orden, los pasos guardados de una rutina. Un paso que
+     *  falla no aborta el resto (se salta); si el servicio de accesibilidad
+     *  se desactiva a media reproduccion o se supera el tope de tiempo, se
+     *  corta limpiamente. */
+    private void runRoutineSteps(JSONObject data) {
+        JSONArray evs = data.optJSONArray("events");
+        if (evs == null) return;
+        int n = Math.min(evs.length(), MAX_PLAY_STEPS);
+        long deadline = SystemClock.elapsedRealtime() + MAX_PLAY_MS;
+        String curAppPkg = null;
+
+        for (int i = 0; i < n; i++) {
+            if (instance == null) break;                          // servicio desactivado a media reproduccion
+            if (SystemClock.elapsedRealtime() > deadline) break;   // tope de tiempo de seguridad
+            JSONObject ev = evs.optJSONObject(i);
+            if (ev == null) continue;
+            String type = ev.optString("type", "");
+            try {
+                if ("app_change".equals(type)) {
+                    String pkg = ev.optString("pkg", "");
+                    if (!pkg.isEmpty() && !pkg.equals(curAppPkg)) {
+                        launch(pkg);
+                        curAppPkg = pkg;
+                        waitForPackage(pkg, 3000);
+                    }
+                } else if ("click".equals(type) || "long_click".equals(type)) {
+                    performRecordedTap(ev, "long_click".equals(type));
+                    sleepQuiet(900);
+                } else if ("scroll".equals(type)) {
+                    dispatchSwipe(ev.optString("dir", "down"));
+                    sleepQuiet(900);
+                }
+            } catch (Exception stepErr) {
+                // un paso suelto que falla no debe tirar abajo toda la rutina
+            }
+        }
+    }
+
+    /** Espera activa (con tope) a que la app en primer plano sea pkg, para dar
+     *  tiempo a que cargue tras lanzarla antes de tocar nada. */
+    private void waitForPackage(String pkg, long maxMs) {
+        long start = SystemClock.elapsedRealtime();
+        while (SystemClock.elapsedRealtime() - start < maxMs) {
+            if (pkg.equals(curPkg)) return;
+            sleepQuiet(120);
+        }
+    }
+
+    private void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Reproduce un click/long-click grabado: intenta localizar el nodo por
+     *  viewId, luego por content-description, y hace performAction() sobre el
+     *  o su primer ancestro clickable/long-clickable. Si no aparece (la UI
+     *  cambio desde que se grabo), cae a un tap/long-tap por la coordenada
+     *  (x,y) grabada como respaldo. */
+    private void performRecordedTap(JSONObject ev, boolean longClick) {
+        String viewId = ev.optString("viewId", "");
+        String desc = ev.optString("desc", "");
+        int x = ev.optInt("x", -1), y = ev.optInt("y", -1);
+
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            try {
+                AccessibilityNodeInfo target = null;
+                if (!viewId.isEmpty()) {
+                    List<AccessibilityNodeInfo> byId = root.findAccessibilityNodeInfosByViewId(viewId);
+                    if (byId != null && !byId.isEmpty()) target = byId.get(0);
+                }
+                if (target == null && !desc.isEmpty()) {
+                    target = findByDesc(root, new String[]{desc.toLowerCase(Locale.ROOT)});
+                }
+                if (target != null) {
+                    int action = longClick ? AccessibilityNodeInfo.ACTION_LONG_CLICK : AccessibilityNodeInfo.ACTION_CLICK;
+                    if (performActionOnNode(target, action)) return;
+                }
+            } catch (Exception ignored) { }
+        }
+        // Fallback: tap/long-tap por coordenada grabada
+        if (x >= 0 && y >= 0) dispatchTap(x, y, longClick);
+    }
+
+    /** Como clickNode() pero para una accion generica (click o long-click),
+     *  usada solo en reproduccion de rutinas; no toca clickNode() (WhatsApp). */
+    private boolean performActionOnNode(AccessibilityNodeInfo n, int action) {
+        if (n == null) return false;
+        boolean wantLong = action == AccessibilityNodeInfo.ACTION_LONG_CLICK;
+        AccessibilityNodeInfo c = n;
+        for (int i = 0; i < 6 && c != null; i++) {
+            boolean ok = wantLong ? c.isLongClickable() : c.isClickable();
+            if (ok) break;
+            c = c.getParent();
+        }
+        try {
+            if (c != null) return c.performAction(action);
+            return n.performAction(action);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Tap (o long-tap) por coordenada absoluta, respaldo cuando no se
+     *  encuentra el nodo grabado. */
+    private void dispatchTap(int x, int y, boolean longClick) {
+        try {
+            Path path = new Path();
+            path.moveTo(x, y);
+            long duration = longClick ? 600 : 80;
+            GestureDescription gd = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, duration))
+                    .build();
+            dispatchGesture(gd, null, null);
+        } catch (Exception ignored) { }
+    }
+
+    /** Reproduce un scroll grabado en la direccion aproximada guardada.
+     *  Vertical reutiliza swipe(); horizontal usa un gesto propio (no habia
+     *  helper existente para eso). */
+    private void dispatchSwipe(String dir) {
+        if ("down".equals(dir)) { swipe(true); return; }
+        if ("up".equals(dir)) { swipe(false); return; }
+        if (!"left".equals(dir) && !"right".equals(dir)) return; // "unknown": no sabemos que gesto hacer
+        try {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            float y = dm.heightPixels / 2f;
+            float x1 = "left".equals(dir) ? dm.widthPixels * 0.80f : dm.widthPixels * 0.20f;
+            float x2 = "left".equals(dir) ? dm.widthPixels * 0.20f : dm.widthPixels * 0.80f;
+            Path path = new Path();
+            path.moveTo(x1, y);
+            path.lineTo(x2, y);
+            GestureDescription gd = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 200))
+                    .build();
+            dispatchGesture(gd, null, null);
+        } catch (Exception ignored) { }
     }
 
     /** Swipe vertical en el centro (scroll). up=dedo hacia arriba (avanza/siguiente). */

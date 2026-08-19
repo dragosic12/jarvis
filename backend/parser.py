@@ -422,20 +422,67 @@ def _match_car(text, raw, context):
     return _dev_intent(raw, context, "jarvis-car://on", "Modo coche on")
 
 
+def _routine_slug(name):
+    """Convierte un nombre hablado (texto YA normalizado por parse_intent:
+    minusculas, sin tildes, sin puntuacion) en un slug estable, para poder
+    casarlo luego por voz con 'haz la rutina X' aunque no se diga exactamente
+    igual (espacios -> guion bajo)."""
+    s = re.sub(r"\s+", "_", name.strip())
+    s = re.sub(r"[^a-z0-9_]", "", s)
+    return s.strip("_")[:40]
+
+
 def _match_routine(text, raw, context):
-    """Grabador de rutinas (FASE 1): 'aprende esta rutina' / 'graba una rutina'
-    (empezar a grabar), 'termina la rutina' / 'guarda la rutina' (parar y
-    guardar), 'lista mis rutinas' (cuantas hay). La captura y el guardado
-    ocurren enteramente en el movil (JarvisA11yService + RoutineRecorder);
-    aqui solo se traduce la frase al esquema jarvis-routine://."""
+    """Grabador de rutinas.
+    FASE 1: 'aprende esta rutina' / 'graba una rutina' (empezar a grabar).
+    FASE 3: guardar CON nombre -- 'guarda la rutina como X', 'termina la
+    rutina y llamala X', 'llama a esta rutina X' -- o SIN nombre -- 'termina
+    la rutina' / 'guarda la rutina' (nombre automatico por fecha). Tambien
+    'lista mis rutinas' (cuantas hay), 'analiza mis rutinas' (lo mas repetido,
+    FASE 2) y 'haz/ejecuta/reproduce la rutina X' (reproducirla, FASE 3).
+    La captura, el guardado, el analisis y la reproduccion ocurren enteramente
+    en el movil (JarvisA11yService + RoutineRecorder); aqui solo se traduce la
+    frase al esquema jarvis-routine://."""
+    # Empezar a grabar
     if re.search(r"\b(aprende|aprender)\s+(esta\s+)?rutina\b", text) \
        or re.search(r"\b(graba|grabar|empieza a grabar|empezar a grabar)\s+(esta\s+|una\s+)?rutina\b", text):
         return _dev_intent(raw, context, "jarvis-routine://record-start", "Empezar a grabar rutina")
+
+    # Parar y guardar CON nombre (varias formas de decirlo) -- van antes que
+    # las variantes sin nombre para que "termina la rutina y llamala X" no
+    # se quede corto en el "termina la rutina" generico.
+    m = re.search(r"\bguarda(?:r)?\s+(?:la\s+)?rutina\s+como\s+(.+)$", text)
+    if not m:
+        m = re.search(r"\b(?:termina|terminar|para|parar)\s+(?:la\s+)?rutina\s+y\s+llama(?:la|le)?\s+(.+)$", text)
+    if not m:
+        m = re.search(r"\bllama\s+a\s+esta\s+rutina\s+(.+)$", text)
+    if m:
+        slug = _routine_slug(m.group(1))
+        if slug:
+            return _dev_intent(raw, context, f"jarvis-routine://record-stop:{slug}",
+                                f"Guardar rutina como {slug}")
+
+    # Parar y guardar SIN nombre (nombre automatico por fecha)
     if re.search(r"\b(termina|terminar|para|parar|deja|dejar)\s+(de\s+grabar\s+)?(la\s+)?rutina\b", text) \
        or re.search(r"\bguarda(r)?\s+(la\s+)?rutina\b", text):
         return _dev_intent(raw, context, "jarvis-routine://record-stop", "Terminar y guardar rutina")
+
+    # Cuantas rutinas hay guardadas
     if re.search(r"\b(lista|listar|cuantas)\s+(mis\s+)?rutinas?\b", text):
         return _dev_intent(raw, context, "jarvis-routine://list", "Listar rutinas", category="info", silent=False)
+
+    # Analizar lo mas repetido (FASE 2)
+    if re.search(r"\banaliza(r)?\s+(mis\s+)?rutinas?\b", text) \
+       or re.search(r"que (hago|repito) mas|patrones de uso|mis habitos", text):
+        return _dev_intent(raw, context, "jarvis-routine://analyze", "Analizar rutinas", category="info", silent=False)
+
+    # Reproducir una rutina guardada (FASE 3)
+    m = re.search(r"\b(?:haz|hazme|ejecuta|ejecutar|reproduce|reproducir|lanza|lanzar)\s+la\s+rutina\s+(.+)$", text)
+    if m:
+        slug = _routine_slug(m.group(1))
+        if slug:
+            return _dev_intent(raw, context, f"jarvis-routine://play:{slug}", f"Reproducir rutina {slug}")
+
     return None
 
 
@@ -834,10 +881,16 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
             break
 
     # 2a. Ayuda, dispositivo, sonido, bloqueo, volumen, hora, alarmas, temporizadores
-    for matcher in (_match_pc_control, _match_pc_open, _match_claude, _match_conversation, _match_translate,
+    # _match_routine va el PRIMERO: siempre exige la palabra literal "rutina" en
+    # el texto, asi que nunca puede robarle un comando a otro matcher; en
+    # cambio si va detras, un nombre de rutina que contenga una frase comun
+    # (p.ej. "termina la rutina y llamala buenos dias") puede ser interceptado
+    # antes de tiempo por matchers mas sueltos (_match_briefing con "buenos
+    # dias", _match_weather, etc.) que no exigen esa palabra.
+    for matcher in (_match_routine, _match_pc_control, _match_pc_open, _match_claude, _match_conversation, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
-                    _match_car, _match_routine, _match_wa_audio,
+                    _match_car, _match_wa_audio,
                     _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
