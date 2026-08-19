@@ -12,7 +12,9 @@ import json
 import os
 import sys
 import hashlib
+import hmac
 import secrets
+import subprocess
 import time
 
 # Asegurar que el directorio del backend esta en el path
@@ -96,6 +98,31 @@ def startup():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "service": "jarvis"}
+
+
+@app.post("/api/deploy")
+async def deploy(request: Request):
+    """Webhook de GitHub: valida la firma HMAC y lanza el auto-deploy en 2o plano."""
+    body = await request.body()
+    try:
+        with open(os.path.join(os.path.dirname(__file__), ".deploy_secret")) as f:
+            secret = f.read().strip()
+    except OSError:
+        raise HTTPException(500, "deploy no configurado")
+    sig = request.headers.get("X-Hub-Signature-256", "")
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(403, "firma invalida")
+    # solo desplegar en push a main
+    if request.headers.get("X-GitHub-Event") == "push":
+        try:
+            if json.loads(body).get("ref") not in (None, "refs/heads/main"):
+                return {"status": "ignorado (no es main)"}
+        except Exception:
+            pass
+    script = os.path.join(os.path.dirname(__file__), "..", "deploy.sh")
+    subprocess.Popen(["bash", script], start_new_session=True)
+    return {"status": "desplegando"}
 
 
 @app.get("/api/tts")

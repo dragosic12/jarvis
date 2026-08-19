@@ -39,3 +39,6 @@ frontend/android/capacitor.settings.gradle
 # python
 __pycache__/
 *.pyc
+
+backend/.deploy_secret
+deploy.log
