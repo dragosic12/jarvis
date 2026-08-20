@@ -1032,12 +1032,13 @@ public class ListeningService extends Service {
     private static final Pattern STOP_RE = Pattern.compile(
             "\\b(para|parate|para ya|calla|callate|calla ya|basta|ya basta|silencio|stop|"
             + "ya esta|vale ya|ya vale|dejalo|deja de hablar|para de hablar|no sigas|corta|"
-            + "quieto|chiss?|shh?)\\b");
+            + "quieto|chiss?|shh?|no|espera|esperate|oye|perdona|perdon|alto|momento|"
+            + "eso no|asi no|para para)\\b");
 
     /** Espera a que el TTS acabe, pero escuchando por si dices "para" para cortarlo. */
-    /** Mientras Jarvis habla, escucha por ENERGIA: si hablas mas alto que el eco de
-     *  su propia voz (barge-in), corta al instante. No depende de transcribir ni de
-     *  la cancelacion de eco, asi que el "para" funciona aunque el AEC sea flojo. */
+    /** Mientras Jarvis habla: la ENERGIA (hablas por encima de su eco) solo dispara
+     *  la escucha; luego TRANSCRIBE y corta unicamente si era voz real (una palabra).
+     *  Asi no corta con ruido/eco fantasma, solo si de verdad dices algo. */
     private void waitTtsIdle(AudioRecord recorder) {
         long t0 = System.currentTimeMillis();
         try {
@@ -1058,23 +1059,54 @@ public class ListeningService extends Service {
                     calib++;
                     continue;
                 }
-                // decae lentisimo y NUNCA sube con tu voz (min): el baseline se queda
-                // en el pico del eco de Jarvis
                 echo = Math.max(echo * 0.999, Math.min(rms, echo));
-                double barge = Math.max(echo * 2.0, 0.012);   // hablas por ENCIMA del eco
+                double barge = Math.max(echo * 2.2, 0.02);   // claramente por encima del eco
 
                 if (rms > barge) {
                     if (loudStart == 0) loudStart = System.currentTimeMillis();
-                    else if (System.currentTimeMillis() - loudStart > 150) { // sostenido, no un clic
-                        stopSpeaking();
-                        sendLog("(voz)", "detenido");
-                        break;
+                    else if (System.currentTimeMillis() - loudStart > 120) {
+                        // Algo suena por encima de Jarvis: capturar y CONFIRMAR que
+                        // es una orden de parada corta (no su propia voz ni ruido)
+                        String said = bargeStopPhrase(recorder, frame);
+                        if (said != null) {
+                            stopSpeaking();
+                            sendLog(said, "detenido");
+                            break;
+                        }
+                        loudStart = 0;       // era ruido/eco/su voz: seguir hablando
                     }
                 } else {
                     loudStart = 0;
                 }
             }
         } catch (InterruptedException ignored) {}
+    }
+
+    /** Graba ~1s y devuelve el texto SOLO si es una orden de parada corta ("para",
+     *  "no", "espera"...). Devuelve null si es su propia voz (frase larga), ruido o
+     *  vacio -> asi Jarvis NO se para a si mismo. */
+    private String bargeStopPhrase(AudioRecord recorder, short[] frame) {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        long t0 = System.currentTimeMillis();
+        while (running && System.currentTimeMillis() - t0 < 1000) {
+            int n = recorder.read(frame, 0, frame.length);
+            if (n <= 0) continue;
+            byte[] b = new byte[n * 2];
+            for (int i = 0; i < n; i++) {
+                b[i * 2] = (byte) (frame[i] & 0xff);
+                b[i * 2 + 1] = (byte) ((frame[i] >> 8) & 0xff);
+            }
+            buf.write(b, 0, b.length);
+        }
+        byte[] pcm = buf.toByteArray();
+        if (pcm.length < MIN_PCM_BYTES) return null;
+        String t = safeTranscribe(wrapWav(pcm));
+        if (t == null) return null;
+        String norm = Normalizer.normalize(t.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
+                .replaceAll("\\p{Mn}", "").trim();
+        if (norm.isEmpty()) return null;
+        int words = norm.split("\\s+").length;
+        return (words <= 5 && STOP_RE.matcher(norm).find()) ? t : null;
     }
 
     private void sendLog(String text, String status) {
