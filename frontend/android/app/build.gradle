@@ -14,8 +14,8 @@ android {
         applicationId "com.drale.jarvis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 30
-        versionName "4.7"
+        versionCode 31
+        versionName "4.8"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Solo arm64 (moviles modernos): evita que MediaPipe dispare el tamano del APK
         ndk { abiFilters 'arm64-v8a' }

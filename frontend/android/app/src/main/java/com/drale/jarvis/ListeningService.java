@@ -60,16 +60,16 @@ public class ListeningService extends Service {
 
     // Parametros de VAD (equivalentes a la version JS)
     private static final int SAMPLE_RATE = 16000;
-    private static final double SILENCE_RMS = 0.0035;  // mas bajo = mas sensible (voz lejana)
+    private static final double SILENCE_RMS = 0.0020;  // mas bajo = mas sensible (voz lejana/floja)
     private static final int NORM_TARGET = 29000;      // pico objetivo tras normalizar (~0.9)
-    private static final float NORM_MAX_GAIN = 12.0f;  // tope de amplificacion adaptativa
+    private static final float NORM_MAX_GAIN = 18.0f;  // tope de amplificacion adaptativa (voz muy floja)
     private static final long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
-    private static final long MIN_SPEECH_MS = 400;
+    private static final long MIN_SPEECH_MS = 300;
     private static final long MAX_SEG_MS = 15000;
     private static final long NO_SPEECH_WAKE_MS = 8000;
     private static final long NO_SPEECH_ARMED_MS = 6000;
     private static final long NO_SPEECH_CONV_MS = 12000;   // modo conversacion: mas margen
-    private static final int MIN_PCM_BYTES = 8000;      // ~0.25s: descartar clics
+    private static final int MIN_PCM_BYTES = 6000;      // ~0.19s: descartar clics (mas permisivo)
 
     // Cualquier palabra que suene a "Jarvis"
     private static final Pattern WAKE_RE =
