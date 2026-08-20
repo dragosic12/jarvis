@@ -768,7 +768,7 @@ def resolve_alias(word: str) -> str:
 
 
 # Cualquier palabra que suene a "Jarvis" (mismo patron que el frontend)
-WAKE_RE = re.compile(r"^(?:ch|[jyghx])?[ae]+r+[bvw]+i+[sz]*$")
+WAKE_RE = re.compile(r"^(?:ch|[jyghx])[ae]+r*[dt]?[bvw]+[ae]*i+[sz]*$")
 
 
 # --- Navegacion / ubicaciones ---

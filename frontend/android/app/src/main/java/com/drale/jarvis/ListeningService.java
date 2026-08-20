@@ -74,9 +74,11 @@ public class ListeningService extends Service {
     private static final long NO_SPEECH_CONV_MS = 12000;   // modo conversacion: mas margen
     private static final int MIN_PCM_BYTES = 6000;      // ~0.19s: descartar clics (mas permisivo)
 
-    // Cualquier palabra que suene a "Jarvis"
+    // Cualquier palabra que suene a "Jarvis": j/y/g/h + vocal + r opcional (Whisper
+    // se la come: "ya vais") + d/t opcional ("yardvis") + v/b + vocal opcional
+    // ("vais") + i + s. Pilla jarvis, yarvis, gervis, jarbis, yardvis, ya vais...
     private static final Pattern WAKE_RE =
-            Pattern.compile("^(?:ch|[jyghx])?[ae]+r+[bvw]+i+[sz]*$");
+            Pattern.compile("^(?:ch|[jyghx])[ae]+r*[dt]?[bvw]+[ae]*i+[sz]*$");
 
     private PowerManager.WakeLock wakeLock;
     private volatile boolean running = false;
@@ -193,9 +195,10 @@ public class ListeningService extends Service {
         while (running) {
             try {
                 if (recorder == null) {
-                    // VOICE_COMMUNICATION activa la cancelacion de eco/ruido por HW
-                    // (mejor para el "para" mientras Jarvis habla).
-                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    // VOICE_RECOGNITION: sin AGC agresivo, capta mejor la voz floja/susurro
+                    // (VOICE_COMMUNICATION recortaba los susurros). Para cortar la voz de
+                    // Jarvis esta el boton PARAR de la app.
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
                             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                             AudioFormat.ENCODING_PCM_16BIT, bufSize);
                     if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
