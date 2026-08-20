@@ -527,11 +527,11 @@ def _handle_question(question: str) -> dict:
         )
         answer = result.stdout.strip()
         if result.returncode != 0 or not answer:
-            stderr = result.stderr.strip()
-            if stderr:
-                answer = f"Error: {stderr[:200]}"
-            else:
-                answer = "No pude obtener una respuesta ahora."
+            answer = "No pude obtener una respuesta ahora."
+        # Claude puede estar al limite: no soltar mensajes de tokens/limite al usuario
+        low = answer.lower()
+        if any(w in low for w in ("limit", "token", "credit", "saldo", "cuota", "quota", "usage")):
+            answer = "Ahora mismo no puedo responder eso. Intentalo otra vez en un momento."
         return {
             "success": result.returncode == 0 and bool(result.stdout.strip()),
             "message": answer,

@@ -3,9 +3,10 @@ para el agente/las tareas). Llamada REST directa, sin SDK. La clave se lee de
 backend/.gemini_key (o de la variable de entorno GEMINI_API_KEY)."""
 import os
 import json
+import time
 import urllib.request
 
-_MODEL = "gemini-flash-latest"   # alias al ultimo flash; rapido, ideal para voz
+_MODEL = "gemini-2.5-flash"   # estable y con cuota (flash-latest daba 429); ideal para voz
 _KEY = None
 
 
@@ -34,17 +35,28 @@ def ask_gemini(question: str, timeout: int = 18) -> str:
     body = {
         "system_instruction": {"parts": [{"text": sys}]},
         "contents": [{"parts": [{"text": question}]}],
-        "generationConfig": {"maxOutputTokens": 300, "temperature": 0.4},
+        # thinkingBudget=0 desactiva el "pensar" (flash-latest si no se gasta los
+        # tokens pensando y devuelve vacio con finishReason MAX_TOKENS).
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.4,
+                             "thinkingConfig": {"thinkingBudget": 0}},
     }
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            resp = json.loads(r.read().decode("utf-8"))
-        cands = resp.get("candidates", [])
-        if not cands:
-            return ""
-        parts = cands[0].get("content", {}).get("parts", [])
-        return "".join(p.get("text", "") for p in parts).strip()
-    except Exception:
-        return ""
+    # Reintentos: el modelo se satura a ratos (HTTP 503 "high demand").
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                resp = json.loads(r.read().decode("utf-8"))
+            cands = resp.get("candidates", [])
+            if cands:
+                parts = cands[0].get("content", {}).get("parts", [])
+                txt = "".join(p.get("text", "") for p in parts).strip()
+                if txt:
+                    return txt
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 503):   # error no transitorio: no reintentar
+                return ""
+        except Exception:
+            pass
+        time.sleep(0.6 * (attempt + 1))
+    return ""
