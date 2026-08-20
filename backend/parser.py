@@ -931,6 +931,10 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     if not text:
         return {"matched": False, "raw_text": raw, "error": "Dime, te escucho"}
 
+    # 1b. Normaliza el verbo "pon" y sus variantes/errores de voz (pone/ponme/ponle/
+    # poner/pones) -> "pon", para que valga en todos los comandos que lo usan.
+    text = re.sub(r"^pon(?:e|me|le|er|erme|es|gan?|go)?\b", "pon", text)
+
     # 2. Detectar contexto explicito
     context = platform  # "auto", "mobile", "linux", etc.
     for prefix, ctx in CONTEXT_PREFIXES:
