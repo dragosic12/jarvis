@@ -67,6 +67,13 @@ public class BackgroundListeningPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Corta la voz de Jarvis (boton PARAR). */
+    @PluginMethod
+    public void stopSpeaking(PluginCall call) {
+        ListeningService.stopSpeakingExternal();
+        call.resolve();
+    }
+
     /** Abre una URL desde primer plano cuando la escucha la maneja el WebView. */
     @PluginMethod
     public void openUrl(PluginCall call) {

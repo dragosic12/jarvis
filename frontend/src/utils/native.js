@@ -46,6 +46,10 @@ export async function stopFaceControl() {
 export async function reloadSettings() {
   try { await bg()?.reloadSettings(); return true } catch { return false }
 }
+// Corta la voz de Jarvis al instante (boton PARAR)
+export async function stopSpeaking() {
+  try { await bg()?.stopSpeaking(); return true } catch { return false }
+}
 
 // Abre una URL con el lanzador nativo de Android (ACTION_VIEW).
 // Los enlaces https verificados (instagram, youtube, spotify...) abren su app

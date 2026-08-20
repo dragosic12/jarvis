@@ -193,7 +193,9 @@ public class ListeningService extends Service {
         while (running) {
             try {
                 if (recorder == null) {
-                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    // VOICE_COMMUNICATION activa la cancelacion de eco/ruido por HW
+                    // (mejor para el "para" mientras Jarvis habla).
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                             AudioFormat.ENCODING_PCM_16BIT, bufSize);
                     if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
@@ -995,6 +997,12 @@ public class ListeningService extends Service {
     public static void reloadSettings() {
         ListeningService s = self;
         if (s != null) new Thread(s::fetchSettings).start();
+    }
+
+    /** Corta la voz de Jarvis al instante (lo llama el boton PARAR de la app). */
+    public static void stopSpeakingExternal() {
+        ListeningService s = self;
+        if (s != null) s.stopSpeaking();
     }
 
     /** Para que JarvisA11yService pueda hablar el resultado de reproducir una
