@@ -66,6 +66,8 @@ public class ListeningService extends Service {
     private static volatile float NORM_MAX_GAIN = 18.0f;  // tope de amplificacion adaptativa (voz muy floja)
     private static volatile long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
     private static volatile long MIN_SPEECH_MS = 300;
+    private static final double SPEECH_MULT = 2.5;     // voz = suelo de ruido * esto (arranque)
+    private static final double NOISE_CAP = 0.03;      // tope del suelo de ruido estimado
     private static final long MAX_SEG_MS = 15000;
     private static final long NO_SPEECH_WAKE_MS = 8000;
     private static final long NO_SPEECH_ARMED_MS = 6000;
@@ -295,6 +297,7 @@ public class ListeningService extends Service {
         long t0 = System.currentTimeMillis();
         long silenceStart = 0;
         boolean hadSpeech = false;
+        double noiseFloor = SILENCE_RMS;   // se calibra con el ambiente (o el eco en TTS)
 
         while (running) {
             int n = recorder.read(frame, 0, frame.length);
@@ -314,16 +317,34 @@ public class ListeningService extends Service {
             buf.write(bytes, 0, bytes.length);
 
             long ms = System.currentTimeMillis() - t0;
-            if (ms < MIN_SPEECH_MS) continue;
 
-            if (rms > SILENCE_RMS) {
+            // Calibra el suelo de ruido con los primeros frames (o con el eco de la
+            // propia voz de Jarvis si esto corre durante el TTS).
+            if (ms < MIN_SPEECH_MS) {
+                noiseFloor = 0.8 * noiseFloor + 0.2 * rms;
+                continue;
+            }
+
+            // Umbrales RELATIVOS al ruido: en sitio ruidoso suben solos (detecta la
+            // voz por ENCIMA del ruido y arranca al instante); en silencio caen al
+            // minimo (SILENCE_RMS = lo mas sensible que permita el panel).
+            double startThr = Math.max(SILENCE_RMS, noiseFloor * SPEECH_MULT);
+            double endThr = Math.max(SILENCE_RMS * 0.7, noiseFloor * 1.5);
+
+            if (rms > startThr) {                    // voz clara sobre el ruido
                 hadSpeech = true;
                 silenceStart = 0;
-            } else if (hadSpeech) {
-                if (silenceStart == 0) silenceStart = System.currentTimeMillis();
-                else if (System.currentTimeMillis() - silenceStart > SILENCE_MS) break;
-            } else if (ms > noSpeechMs) {
-                break; // esperando "Jarvis" y nadie hablo: reciclar
+            } else if (rms < endThr) {               // silencio / ruido de fondo
+                noiseFloor = Math.min(NOISE_CAP, 0.95 * noiseFloor + 0.05 * rms);
+                if (hadSpeech) {
+                    if (silenceStart == 0) silenceStart = System.currentTimeMillis();
+                    else if (System.currentTimeMillis() - silenceStart > SILENCE_MS) break;
+                } else if (ms > noSpeechMs) {
+                    break; // esperando "Jarvis" y nadie hablo: reciclar
+                }
+            } else {                                 // zona intermedia: mantener
+                if (hadSpeech) silenceStart = 0;
+                else if (ms > noSpeechMs) break;
             }
             if (ms > MAX_SEG_MS) break;
         }
@@ -1018,19 +1039,20 @@ public class ListeningService extends Service {
         try {
             // Espera corta antes de escuchar "para" (rapido pero sin cortar las
             // confirmaciones cortas). El AEC cancela la propia voz de Jarvis.
-            Thread.sleep(350);
+            Thread.sleep(250);
             while (running && ttsBusy() && System.currentTimeMillis() - t0 < 30000) {
-                Segment seg = recordSegment(recorder, 1000);
+                Segment seg = recordSegment(recorder, 800);
                 if (!running) break;
                 if (seg != null && seg.hadSpeech && seg.pcm.length >= MIN_PCM_BYTES) {
                     String t = safeTranscribe(wrapWav(seg.pcm));
                     if (t != null) {
                         String norm = Normalizer.normalize(t.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
                                 .replaceAll("\\p{Mn}", "").trim();
-                        // Solo cortar si es una frase CORTA (una orden real "para"),
-                        // no las propias frases largas de Jarvis que capta por eco
+                        // Corta si es una orden CORTA ("para"/"calla"/"jarvis para"...).
+                        // El VAD adaptativo ya calibra al eco de Jarvis, asi que
+                        // hadSpeech aqui = estas hablando por encima de su voz.
                         int words = norm.isEmpty() ? 0 : norm.split("\\s+").length;
-                        if (words > 0 && words <= 3 && STOP_RE.matcher(norm).find()) {
+                        if (words > 0 && words <= 4 && STOP_RE.matcher(norm).find()) {
                             stopSpeaking();
                             sendLog(t, "detenido");
                             break;

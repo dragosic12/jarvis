@@ -3,7 +3,7 @@ import { API_BASE } from '../config'
 import { reloadSettings } from '../utils/native'
 
 // silence_rms: mas bajo = mas sensible. Lo mostramos como "Sensibilidad" 0..100.
-const RMS_MIN = 0.0008, RMS_MAX = 0.0060
+const RMS_MIN = 0.0004, RMS_MAX = 0.0060
 const rmsToSens = (rms) => Math.round(((RMS_MAX - rms) / (RMS_MAX - RMS_MIN)) * 100)
 const sensToRms = (s) => +(RMS_MAX - (s / 100) * (RMS_MAX - RMS_MIN)).toFixed(5)
 
