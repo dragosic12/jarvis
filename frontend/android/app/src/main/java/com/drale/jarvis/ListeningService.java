@@ -103,7 +103,9 @@ public class ListeningService extends Service {
     // Frases para salir del modo conversacion (sin ir al servidor)
     private static final Pattern EXIT_RE = Pattern.compile(
             "\\b(gracias|adios|adios jarvis|hasta luego|hasta ahora|modo normal|ya esta|"
-            + "nada mas|sal del modo|dejalo ya|se acabo|eso es todo|corta ya|ya vale)\\b");
+            + "nada mas|sal del modo|dejalo ya|se acabo|eso es todo|corta ya|ya vale|"
+            + "para|para ya|parate|basta|ya basta|sal|salir|callate|calla|silencio|"
+            + "deja de escuchar|para de escuchar|dejalo|termina)\\b");
 
     private boolean isExitPhrase(String text) {
         String n = Normalizer.normalize(text.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
@@ -1075,6 +1077,12 @@ public class ListeningService extends Service {
     public static void stopSpeakingExternal() {
         ListeningService s = self;
         if (s != null) s.stopSpeaking();
+    }
+
+    /** Sale del modo conversacion desde la app (boton MODO NORMAL). */
+    public static void exitConvExternal() {
+        ListeningService s = self;
+        if (s != null) { s.convMode = false; s.stopSpeaking(); }
     }
 
     /** Para que JarvisA11yService pueda hablar el resultado de reproducir una

@@ -9,7 +9,7 @@ import LogPanel from './components/LogPanel'
 import GestureMode from './components/GestureMode'
 import Settings from './components/Settings'
 import Cheatsheet from './components/Cheatsheet'
-import { getAppVersion, stopSpeaking } from './utils/native'
+import { getAppVersion, stopSpeaking, exitConversation } from './utils/native'
 import { API_BASE } from './config'
 
 const TABS = [
@@ -147,13 +147,21 @@ export default function App() {
                 authFetch={authFetch}
                 continuous={continuous}
               />
-              {/* Botón para cortar la voz de Jarvis al instante (100% fiable) */}
-              <button
-                onClick={() => stopSpeaking()}
-                className="flex items-center gap-2 text-sm font-display font-semibold tracking-wide px-6 py-2.5 rounded-full bg-jarvis-danger/15 text-jarvis-danger border border-jarvis-danger/40 active:scale-95 transition-transform"
-              >
-                ⏹ PARAR
-              </button>
+              {/* Botones: cortar la voz + salir del modo conversación (100% fiables) */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => stopSpeaking()}
+                  className="flex items-center gap-2 text-sm font-display font-semibold tracking-wide px-6 py-2.5 rounded-full bg-jarvis-danger/15 text-jarvis-danger border border-jarvis-danger/40 active:scale-95 transition-transform"
+                >
+                  ⏹ PARAR
+                </button>
+                <button
+                  onClick={() => exitConversation()}
+                  className="flex items-center gap-2 text-sm font-display font-semibold tracking-wide px-5 py-2.5 rounded-full bg-jarvis-card/60 text-jarvis-muted border border-white/15 active:scale-95 transition-transform"
+                >
+                  🚪 MODO NORMAL
+                </button>
+              </div>
               <TextInput onResult={setLastResult} authHeaders={authHeaders} authFetch={authFetch} />
               {lastResult && <ResultPanel result={lastResult} authHeaders={authHeaders} authFetch={authFetch} />}
             </div>

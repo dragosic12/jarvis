@@ -79,6 +79,13 @@ public class BackgroundListeningPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Sale del modo conversacion (boton MODO NORMAL). */
+    @PluginMethod
+    public void exitConversation(PluginCall call) {
+        ListeningService.exitConvExternal();
+        call.resolve();
+    }
+
     /** Pide permisos de telefono (contestar llamadas) y bluetooth (modo coche). */
     @PluginMethod
     public void requestPhonePerms(PluginCall call) {

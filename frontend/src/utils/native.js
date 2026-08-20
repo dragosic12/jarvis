@@ -50,6 +50,10 @@ export async function reloadSettings() {
 export async function stopSpeaking() {
   try { await bg()?.stopSpeaking(); return true } catch { return false }
 }
+// Sale del modo conversacion (boton MODO NORMAL)
+export async function exitConversation() {
+  try { await bg()?.exitConversation(); return true } catch { return false }
+}
 // Pide permisos de telefono (contestar llamadas) y bluetooth (auto-modo-coche)
 export async function requestPhonePerms() {
   try { const r = await bg()?.requestPhonePerms(); return !!(r && r.granted) } catch { return false }
