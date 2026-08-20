@@ -194,6 +194,31 @@ def _match_claude(text, raw, context):
     return None
 
 
+def _question_intent(raw, context, q):
+    return {"matched": True, "raw_text": raw, "category": "pregunta", "trigger": "gemini",
+            "action_type": "question", "action_value": q, "command_id": None,
+            "description": "Pregunta", "platform": "all", "query": q,
+            "context": context, "silent": False}
+
+
+def _match_followup(text, raw, context):
+    """Seguimientos de una explicacion (usan la memoria del hilo de Gemini)."""
+    # Cambiar de tema -> reiniciar el hilo
+    if re.search(r"cambia de tema|cambiemos de tema|olvida(lo| eso| el tema)?|otro tema|"
+                 r"nuevo tema|borra el tema|empieza de cero|empecemos de nuevo", text):
+        return {"matched": True, "raw_text": raw, "category": "conversacion", "trigger": "reset",
+                "action_type": "chat_reset", "action_value": "", "command_id": None,
+                "description": "Nuevo tema", "platform": "all", "query": None,
+                "context": context, "silent": True}
+    # Ampliar / preguntar por fuentes -> van al hilo de Gemini con el texto tal cual
+    if re.match(r"^(amplia|ampliame|amplialo|ampliemos|profundiza|desarrolla|cuentame mas|"
+                r"dime mas|y que mas|sigue con eso|dame mas detalle|explica(me)? mas)\b", text) \
+       or re.search(r"de donde (lo |la |las )?(has )?sacad|de donde sacas eso|segun quien|"
+                    r"de que fuente|que fuentes?|como lo sabes|quien lo dice|es fiable eso", text):
+        return _question_intent(raw, context, text)
+    return None
+
+
 def _match_pc_open(text, raw, context):
     """'en el ordenador abre X' / 'abre X en el ordenador' -> abrir en el sobremesa."""
     pc = r"(?:el )?(?:ordenador|ordenata|pc|sobremesa)"
@@ -951,7 +976,7 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     # antes de tiempo por matchers mas sueltos (_match_briefing con "buenos
     # dias", _match_weather, etc.) que no exigen esa palabra.
     for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_control, _match_pc_open,
-                    _match_claude, _match_conversation, _match_translate,
+                    _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
                     _match_car, _match_wa_audio,

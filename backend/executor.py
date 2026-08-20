@@ -88,6 +88,12 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
         elif action_type == "pc_shot":
             return _handle_pc_shot()
 
+        elif action_type == "chat_reset":
+            from gemini import reset_chat
+            reset_chat()
+            m = "Vale, tema nuevo. Dime."
+            return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+
         elif action_type == "search":
             return _handle_search(action_value, query, target_platform)
 

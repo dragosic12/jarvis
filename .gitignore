@@ -44,3 +44,4 @@ backend/.deploy_secret
 deploy.log
 .gemini_key
 backend/settings.json
+backend/.gemini_chat.json
