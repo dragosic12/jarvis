@@ -342,7 +342,9 @@ public class ListeningService extends Service {
                 .replaceAll("[^a-z0-9ñ ]+", " ")
                 .trim();
         String[] w = norm.split("\\s+");
-        int limit = Math.min(w.length, 3);
+        // Escanea TODA la frase (no solo el principio): asi pilla "jarvis" aunque
+        // lo digas en mitad de una conversacion, y coge lo que va detras como comando.
+        int limit = w.length;
         for (int i = 0; i < limit; i++) {
             if (w[i].isEmpty()) continue;
             if (WAKE_RE.matcher(w[i]).matches()) {
