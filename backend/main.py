@@ -298,6 +298,21 @@ async def add_alias(body: dict, _t=Depends(verify_token)):
     return {"success": True}
 
 
+# --- Ajustes en caliente (sensibilidad del micro, etc.) ---
+
+@app.get("/api/settings")
+def get_settings():
+    # publico: el servicio nativo lo lee sin auth para aplicar la sensibilidad
+    from settings import load
+    return load()
+
+
+@app.post("/api/settings")
+async def set_settings(body: dict, _t=Depends(verify_token)):
+    from settings import save
+    return save(body)
+
+
 # --- Contactos (para mensajes de WhatsApp por voz) ---
 
 @app.get("/api/contacts")

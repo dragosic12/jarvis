@@ -7,6 +7,7 @@ import CommandList from './components/CommandList'
 import TextInput from './components/TextInput'
 import LogPanel from './components/LogPanel'
 import GestureMode from './components/GestureMode'
+import Settings from './components/Settings'
 import { getAppVersion } from './utils/native'
 import { API_BASE } from './config'
 
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'commands', label: 'Comandos' },
   { id: 'logs', label: 'Historial' },
   { id: 'gestos', label: 'Gestos' },
+  { id: 'ajustes', label: 'Ajustes' },
 ]
 
 export default function App() {
@@ -156,6 +158,7 @@ export default function App() {
               onToggleListen={() => setContinuous((c) => !c)}
             />
           )}
+          {tab === 'ajustes' && <Settings authFetch={authFetch} />}
         </main>
       </div>
     </div>

@@ -60,6 +60,13 @@ public class BackgroundListeningPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Recarga los ajustes (sensibilidad) sin reiniciar la escucha. */
+    @PluginMethod
+    public void reloadSettings(PluginCall call) {
+        ListeningService.reloadSettings();
+        call.resolve();
+    }
+
     /** Abre una URL desde primer plano cuando la escucha la maneja el WebView. */
     @PluginMethod
     public void openUrl(PluginCall call) {

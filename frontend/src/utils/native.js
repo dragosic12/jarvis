@@ -42,6 +42,10 @@ export async function startFaceControl() {
 export async function stopFaceControl() {
   try { await bg()?.stopFaceControl(); return true } catch { return false }
 }
+// Recarga los ajustes (sensibilidad) en el servicio nativo sin reiniciar
+export async function reloadSettings() {
+  try { await bg()?.reloadSettings(); return true } catch { return false }
+}
 
 // Abre una URL con el lanzador nativo de Android (ACTION_VIEW).
 // Los enlaces https verificados (instagram, youtube, spotify...) abren su app

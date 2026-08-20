@@ -43,3 +43,4 @@ __pycache__/
 backend/.deploy_secret
 deploy.log
 .gemini_key
+backend/settings.json

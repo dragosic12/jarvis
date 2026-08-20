@@ -60,11 +60,12 @@ public class ListeningService extends Service {
 
     // Parametros de VAD (equivalentes a la version JS)
     private static final int SAMPLE_RATE = 16000;
-    private static final double SILENCE_RMS = 0.0020;  // mas bajo = mas sensible (voz lejana/floja)
+    // Ajustables en caliente desde el panel (GET /api/settings); estos son los defaults.
+    private static volatile double SILENCE_RMS = 0.0020;  // mas bajo = mas sensible (voz lejana/floja)
     private static final int NORM_TARGET = 29000;      // pico objetivo tras normalizar (~0.9)
-    private static final float NORM_MAX_GAIN = 18.0f;  // tope de amplificacion adaptativa (voz muy floja)
-    private static final long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
-    private static final long MIN_SPEECH_MS = 300;
+    private static volatile float NORM_MAX_GAIN = 18.0f;  // tope de amplificacion adaptativa (voz muy floja)
+    private static volatile long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
+    private static volatile long MIN_SPEECH_MS = 300;
     private static final long MAX_SEG_MS = 15000;
     private static final long NO_SPEECH_WAKE_MS = 8000;
     private static final long NO_SPEECH_ARMED_MS = 6000;
@@ -180,6 +181,7 @@ public class ListeningService extends Service {
     // ---- Bucle principal de escucha ----
 
     private void listenLoop() {
+        fetchSettings();   // aplica la sensibilidad guardada en el panel
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         int bufSize = Math.max(minBuf, SAMPLE_RATE); // ~1s de holgura
@@ -947,6 +949,30 @@ public class ListeningService extends Service {
     public static boolean isCarMode() {
         ListeningService s = self;
         return s != null && s.carMode;
+    }
+
+    /** Lee los ajustes del backend (GET /api/settings) y aplica la sensibilidad. */
+    private void fetchSettings() {
+        if (apiBase == null || apiBase.isEmpty()) return;
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/settings").openConnection();
+            c.setConnectTimeout(4000);
+            c.setReadTimeout(4000);
+            c.setRequestProperty("User-Agent", "Jarvis");
+            if (c.getResponseCode() != 200) return;
+            String json = readBody(c);
+            JSONObject o = new JSONObject(json);
+            if (o.has("silence_rms"))   SILENCE_RMS   = o.getDouble("silence_rms");
+            if (o.has("silence_ms"))    SILENCE_MS    = o.getLong("silence_ms");
+            if (o.has("norm_max_gain")) NORM_MAX_GAIN = (float) o.getDouble("norm_max_gain");
+            if (o.has("min_speech_ms")) MIN_SPEECH_MS = o.getLong("min_speech_ms");
+        } catch (Exception ignored) {}
+    }
+
+    /** Recarga los ajustes en caliente (lo llama el panel tras guardar). */
+    public static void reloadSettings() {
+        ListeningService s = self;
+        if (s != null) new Thread(s::fetchSettings).start();
     }
 
     /** Para que JarvisA11yService pueda hablar el resultado de reproducir una
