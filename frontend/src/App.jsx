@@ -8,15 +8,17 @@ import TextInput from './components/TextInput'
 import LogPanel from './components/LogPanel'
 import GestureMode from './components/GestureMode'
 import Settings from './components/Settings'
+import Cheatsheet from './components/Cheatsheet'
 import { getAppVersion } from './utils/native'
 import { API_BASE } from './config'
 
 const TABS = [
   { id: 'voice', label: 'Voz' },
+  { id: 'guia', label: 'Guía' },
   { id: 'commands', label: 'Comandos' },
-  { id: 'logs', label: 'Historial' },
-  { id: 'gestos', label: 'Gestos' },
   { id: 'ajustes', label: 'Ajustes' },
+  { id: 'gestos', label: 'Gestos' },
+  { id: 'logs', label: 'Historial' },
 ]
 
 export default function App() {
@@ -103,12 +105,12 @@ export default function App() {
         </header>
 
         {/* Tabs */}
-        <nav className="flex glass border-b border-white/5">
+        <nav className="flex glass border-b border-white/5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
           {TABS.map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`relative flex-1 py-2.5 text-sm font-display font-semibold tracking-wider transition-colors ${
+              className={`relative flex-shrink-0 px-4 py-2.5 text-xs font-display font-semibold tracking-wide whitespace-nowrap transition-colors ${
                 tab === t.id ? 'text-jarvis-accent' : 'text-jarvis-muted hover:text-white'
               }`}
             >
@@ -159,6 +161,7 @@ export default function App() {
             />
           )}
           {tab === 'ajustes' && <Settings authFetch={authFetch} />}
+          {tab === 'guia' && <Cheatsheet />}
         </main>
       </div>
     </div>
