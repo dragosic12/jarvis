@@ -941,6 +941,51 @@ CONTEXT_PREFIXES = [
 
 
 def parse_intent(transcript: str, platform: str = "auto") -> dict:
+    """Reglas primero (instantaneo y sin coste); si no entiende, Gemini interpreta la
+    intencion y la traduce a un comando canonico que las reglas SI ejecutan. El wake
+    word 'Jarvis' lo filtra el nativo: aqui solo llega lo que ya dijo 'Jarvis'."""
+    r = _parse_rules(transcript, platform)
+    if r.get("matched"):
+        return r
+
+    # --- Fallback IA (solo si las reglas no entendieron nada) ---
+    try:
+        from gemini import interpret_command
+        contacts = []
+        try:
+            db = get_db()
+            contacts = [row["name"] for row in db.execute("SELECT name FROM contacts").fetchall()]
+            db.close()
+        except Exception:
+            pass
+        canon = interpret_command(transcript, contacts)
+    except Exception:
+        canon = ""
+
+    if canon and canon.strip().upper() != "PREGUNTA":
+        r2 = _parse_rules(canon, platform)
+        if r2.get("matched"):
+            r2["llm_interpreted"] = True
+            r2["raw_text"] = transcript
+            return r2
+
+    # No es una orden (o no se pudo mapear) -> pregunta/charla a Gemini
+    text = normalize(transcript)
+    w0 = text.split()
+    if w0 and WAKE_RE.match(w0[0]):
+        text = " ".join(w0[1:])
+    elif len(w0) >= 2 and WAKE_RE.match(w0[0] + w0[1]):
+        text = " ".join(w0[2:])
+    text = text.strip()
+    if text:
+        return {"matched": True, "raw_text": transcript, "category": "pregunta",
+                "trigger": "gemini", "action_type": "question", "action_value": text,
+                "command_id": None, "description": "Pregunta", "platform": "all",
+                "query": text, "context": platform, "silent": False}
+    return r
+
+
+def _parse_rules(transcript: str, platform: str = "auto") -> dict:
     raw = transcript
     text = normalize(transcript)
 
