@@ -66,7 +66,7 @@ public class ListeningService extends Service {
     private static volatile float NORM_MAX_GAIN = 18.0f;  // tope de amplificacion adaptativa (voz muy floja)
     private static volatile long SILENCE_MS = 700;        // silencio tras voz -> cortar (mas agil)
     private static volatile long MIN_SPEECH_MS = 300;
-    private static final double SPEECH_MULT = 2.5;     // voz = suelo de ruido * esto (arranque)
+    private static volatile double SPEECH_MULT = 2.0;  // voz = suelo de ruido * esto (mas bajo = mas sensible)
     private static final double NOISE_CAP = 0.03;      // tope del suelo de ruido estimado
     private static final long MAX_SEG_MS = 15000;
     private static final long NO_SPEECH_WAKE_MS = 8000;
@@ -984,6 +984,7 @@ public class ListeningService extends Service {
             String json = readBody(c);
             JSONObject o = new JSONObject(json);
             if (o.has("silence_rms"))   SILENCE_RMS   = o.getDouble("silence_rms");
+            if (o.has("speech_mult"))   SPEECH_MULT   = o.getDouble("speech_mult");
             if (o.has("silence_ms"))    SILENCE_MS    = o.getLong("silence_ms");
             if (o.has("norm_max_gain")) NORM_MAX_GAIN = (float) o.getDouble("norm_max_gain");
             if (o.has("min_speech_ms")) MIN_SPEECH_MS = o.getLong("min_speech_ms");

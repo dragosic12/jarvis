@@ -7,7 +7,8 @@ _PATH = os.path.join(os.path.dirname(__file__), "settings.json")
 
 # valor por defecto + rango permitido (min, max) para validar
 _SPEC = {
-    "silence_rms":   (0.0020, 0.0004, 0.0060),   # umbral VAD: mas bajo = mas sensible
+    "silence_rms":   (0.0020, 0.0003, 0.0060),   # umbral VAD minimo (sala silenciosa)
+    "speech_mult":   (2.0,    1.3,    3.5),       # voz = ruido * esto; mas bajo = mas sensible
     "silence_ms":    (700,    300,    2000),      # ms de silencio para cortar
     "norm_max_gain": (18.0,   4.0,    30.0),      # tope de amplificacion de voz floja
     "min_speech_ms": (300,    150,    800),       # duracion minima para reaccionar

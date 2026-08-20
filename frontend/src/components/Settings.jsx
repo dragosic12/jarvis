@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react'
 import { API_BASE } from '../config'
 import { reloadSettings } from '../utils/native'
 
-// silence_rms: mas bajo = mas sensible. Lo mostramos como "Sensibilidad" 0..100.
-const RMS_MIN = 0.0004, RMS_MAX = 0.0060
+// La "Sensibilidad" 0..100 mueve a la vez el umbral minimo y el factor sobre el
+// ruido (el que manda con el VAD adaptativo). 100 = lo mas sensible posible.
+const RMS_MIN = 0.0003, RMS_MAX = 0.0060
+const MULT_MIN = 1.3, MULT_MAX = 3.5
 const rmsToSens = (rms) => Math.round(((RMS_MAX - rms) / (RMS_MAX - RMS_MIN)) * 100)
 const sensToRms = (s) => +(RMS_MAX - (s / 100) * (RMS_MAX - RMS_MIN)).toFixed(5)
+const sensToMult = (s) => +(MULT_MAX - (s / 100) * (MULT_MAX - MULT_MIN)).toFixed(2)
 
 export default function Settings({ authFetch }) {
   const [s, setS] = useState(null)
@@ -46,8 +49,9 @@ export default function Settings({ authFetch }) {
 
       <div className="mb-5">
         <label className="text-sm font-display text-white/90">Sensibilidad del micro · {rmsToSens(s.silence_rms)}%</label>
-        {slider(rmsToSens(s.silence_rms), 0, 100, 1, (v) => set('silence_rms', sensToRms(v)))}
-        <p className="text-[11px] text-jarvis-muted mt-1">Más alta = oye voz más lejana o floja (pero también más ruido de fondo).</p>
+        {slider(rmsToSens(s.silence_rms), 0, 100, 1,
+          (v) => { setS({ ...s, silence_rms: sensToRms(v), speech_mult: sensToMult(v) }); setSaved(false) })}
+        <p className="text-[11px] text-jarvis-muted mt-1">Más alta = oye voz más lejana o floja (pero también más ruido de fondo). Como solo actúa al oír "Jarvis", puedes ponerla al máximo.</p>
       </div>
 
       <div className="mb-5">
