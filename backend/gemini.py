@@ -6,7 +6,7 @@ import json
 import time
 import urllib.request
 
-_MODEL = "gemini-2.5-flash"   # estable y con cuota (flash-latest daba 429)
+_MODEL = "gemini-flash-lite-latest"   # lite mas nuevo: barato, rapido, buena cuota diaria
 _KEY = None
 _HIST_PATH = os.path.join(os.path.dirname(__file__), ".gemini_chat.json")
 _HIST_TTL = 300   # 5 min sin hablar -> se olvida el hilo (evita mezclar temas)
@@ -84,8 +84,8 @@ def _gemini_call(contents, system_text, timeout=18, max_tokens=400):
     body = {
         "system_instruction": {"parts": [{"text": system_text}]},
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3,
-                             "thinkingConfig": {"thinkingBudget": 0}},
+        # (flash-lite no sobre-piensa; sin thinkingConfig, que los modelos 3.x rechazan)
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.3},
     }
     data = json.dumps(body).encode("utf-8")
     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
