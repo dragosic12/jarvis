@@ -687,6 +687,43 @@ def _match_reminder(text, raw, context):
     return None
 
 
+def _list_intent(raw, context, value, desc):
+    return {"matched": True, "raw_text": raw, "category": "lista", "trigger": "lista",
+            "action_type": "list", "action_value": value, "command_id": None,
+            "description": desc or "Lista", "platform": "all", "query": None,
+            "context": context, "silent": False}
+
+
+def _match_lists(text, raw, context):
+    """Notas y lista de la compra por voz."""
+    # --- Lista de la compra ---
+    m = re.match(r"^(?:anade|anademe|apunta|apuntame|pon|agrega|mete|echa|escribe|"
+                 r"agregame) (.+?) (?:a |en )(?:la )?(?:lista de (?:la )?)?compra$", text)
+    if m:
+        it = m.group(1).strip()
+        return _list_intent(raw, context, "add:compra:" + it, f"Anadido a la compra: {it}")
+    m = re.match(r"^(?:quita|borra|elimina|saca|tacha) (.+?) de (?:la )?(?:lista de (?:la )?)?compra$", text)
+    if m:
+        return _list_intent(raw, context, "remove:compra:" + m.group(1).strip(), "Quitar de la compra")
+    if re.search(r"(borra|vacia|limpia|elimina|resetea)\b.*\bcompra", text):
+        return _list_intent(raw, context, "clear:compra", "Vaciar la compra")
+    if re.search(r"(que hay|que tengo|que me falta|que necesito|lee|dime|ensename|muestrame)"
+                 r"\b.*\bcompra|que tengo que comprar|lista de la compra", text):
+        return _list_intent(raw, context, "read:compra", "Leer la compra")
+
+    # --- Notas ---
+    m = re.match(r"^(?:apunta|apuntame|anota|anotame|toma nota)(?:\s+de)?(?:\s+que)?\s+(.+)$", text)
+    if m and "compra" not in text:
+        it = m.group(1).strip()
+        return _list_intent(raw, context, "add:notas:" + it, f"Apuntado: {it}")
+    if re.search(r"(borra|vacia|limpia|elimina)\b.*\bnotas", text):
+        return _list_intent(raw, context, "clear:notas", "Vaciar notas")
+    if re.search(r"(que notas|mis notas|lee(me)? las notas|que tenia apuntado|que apunte|"
+                 r"dime las notas|que tengo apuntado)", text):
+        return _list_intent(raw, context, "read:notas", "Leer notas")
+    return None
+
+
 def normalize(text: str) -> str:
     """Normaliza: minusculas, sin tildes, sin puntuacion extra."""
     text = text.lower().strip()
@@ -1024,7 +1061,7 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
-                    _match_car, _match_wa_audio,
+                    _match_car, _match_wa_audio, _match_lists,
                     _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_reminder, _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)

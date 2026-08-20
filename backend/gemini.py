@@ -37,6 +37,8 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - aprende esta rutina / haz la rutina NOMBRE
 - cuanto me queda de claude
 - traduce TEXTO al IDIOMA
+- anade COSA a la compra / que hay en la compra / quita COSA de la compra
+- apunta que NOTA / que notas tengo
 - dile a claude que TAREA  (solo tareas de programacion/agente)"""
 
 

@@ -94,6 +94,9 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
             m = "Vale, tema nuevo. Dime."
             return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
 
+        elif action_type == "list":
+            return _handle_list(action_value)
+
         elif action_type == "search":
             return _handle_search(action_value, query, target_platform)
 
@@ -504,6 +507,36 @@ def _handle_briefing() -> str:
     except Exception:
         pass
     return " ".join(parts)
+
+
+def _handle_list(spec: str) -> dict:
+    """Notas y lista de la compra. spec = 'op:lista:item' (op: add/read/clear/remove)."""
+    from lists import add_item, read_items, clear_list, remove_item
+    parts = spec.split(":", 2)
+    op = parts[0]
+    lst = parts[1] if len(parts) > 1 else ""
+    item = parts[2] if len(parts) > 2 else ""
+    label = "la compra" if lst == "compra" else "las notas"
+    if op == "add":
+        add_item(lst, item)
+        m = f"Anadido a {label}: {item}." if lst == "compra" else f"Apuntado: {item}."
+    elif op == "read":
+        items = read_items(lst)
+        if not items:
+            m = f"No tienes nada en {label}."
+        elif lst == "compra":
+            m = "En la compra tienes: " + ", ".join(items) + "."
+        else:
+            m = "Tus notas: " + ". ".join(items) + "."
+    elif op == "clear":
+        n = clear_list(lst)
+        m = f"He vaciado {label}." if n else f"No habia nada en {label}."
+    elif op == "remove":
+        n = remove_item(lst, item)
+        m = f"Quitado de {label}: {item}." if n else f"No encontre {item} en {label}."
+    else:
+        m = "No he entendido lo de la lista."
+    return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
 
 
 def _handle_question(question: str) -> dict:
