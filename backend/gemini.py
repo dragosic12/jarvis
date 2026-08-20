@@ -4,6 +4,7 @@ comando canonico que el parser SI ejecuta. Llamada REST directa, sin SDK."""
 import os
 import json
 import time
+import base64
 import urllib.request
 
 _MODEL = "gemini-flash-lite-latest"   # lite mas nuevo: barato, rapido, buena cuota diaria
@@ -32,6 +33,8 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - sube el volumen del ordenador / baja el volumen del ordenador / pausa la musica del ordenador / siguiente cancion en el ordenador
 - apaga el ordenador / reinicia el ordenador / suspende el ordenador / bloquea el ordenador
 - escribe en el ordenador TEXTO
+- copia al ordenador TEXTO / lee el portapapeles del ordenador
+- lee la pantalla del ordenador
 - haz una captura y mandamela
 - activa el modo coche / modo conversacion
 - aprende esta rutina / haz la rutina NOMBRE
@@ -126,6 +129,18 @@ def ask_gemini(question: str, timeout: int = 18, remember: bool = True) -> str:
         hist.append({"role": "model", "text": txt})
         _save_hist(hist)
     return txt
+
+
+def read_image(image_bytes: bytes, prompt: str, timeout: int = 25) -> str:
+    """Envia una imagen a Gemini (vision) y devuelve su lectura/resumen, o ''."""
+    if not image_bytes:
+        return ""
+    b64 = base64.b64encode(image_bytes).decode()
+    contents = [{"role": "user", "parts": [
+        {"text": prompt},
+        {"inline_data": {"mime_type": "image/png", "data": b64}},
+    ]}]
+    return _gemini_call(contents, _SYS, timeout=timeout, max_tokens=400)
 
 
 def interpret_command(transcript: str, contacts=None) -> str:

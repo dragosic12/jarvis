@@ -284,6 +284,40 @@ def _match_pc_control(text, raw, context):
     return None
 
 
+def _match_pc_clip(text, raw, context):
+    """Portapapeles PC<->movil."""
+    # Movil -> PC: "copia al ordenador X"
+    if re.match(r"^copia(?:me)?(?: esto)? (?:al|en el|en) (?:ordenador|pc|portapapeles)", text):
+        mr = re.search(r"copia(?:me)?(?:\s+esto)?\s+(?:al|en el|en)\s+"
+                       r"(?:ordenador|pc|portapapeles(?:\s+del\s+(?:ordenador|pc))?)\s+(.+)$",
+                       raw, re.IGNORECASE)
+        payload = mr.group(1).strip() if (mr and mr.group(1).strip()) else ""
+        if payload:
+            return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": "pc_clip_set",
+                    "action_type": "pc_clip_set", "action_value": payload, "command_id": None,
+                    "description": "Copiar al PC", "platform": "all", "query": None,
+                    "context": context, "silent": True}
+    # PC -> movil: leer el portapapeles del PC
+    if re.search(r"portapapeles|(lo|que) (has )?copiad", text) and re.search(r"ordenador|\bpc\b", text) \
+       and re.search(r"lee|leeme|que (hay|pone|dice|copiaste|has copiado)|dime|trae|dame", text):
+        return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": "pc_clip_get",
+                "action_type": "pc_clip_get", "action_value": "", "command_id": None,
+                "description": "Leer portapapeles PC", "platform": "all", "query": None,
+                "context": context, "silent": False}
+    return None
+
+
+def _match_pc_read(text, raw, context):
+    """Leer/resumir la pantalla del PC en alto."""
+    if re.search(r"pantalla", text) and re.search(r"ordenador|\bpc\b", text) \
+       and re.search(r"\b(lee|leeme|que pone|que dice|que hay|que sale|resume|resumeme|dime que)\b", text):
+        return {"matched": True, "raw_text": raw, "category": "ordenador", "trigger": "pc_read",
+                "action_type": "pc_read_screen", "action_value": "", "command_id": None,
+                "description": "Leer pantalla PC", "platform": "all", "query": None,
+                "context": context, "silent": False}
+    return None
+
+
 def _match_pc_type(text, raw, context):
     """'escribe en el ordenador X' -> teclea X en la ventana activa del sobremesa."""
     m = re.match(r"^(?:escribe|escribeme|teclea|dicta) en (?:el )?(?:ordenador|pc|sobremesa) (.+)$", text)
@@ -1057,7 +1091,8 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
     # (p.ej. "termina la rutina y llamala buenos dias") puede ser interceptado
     # antes de tiempo por matchers mas sueltos (_match_briefing con "buenos
     # dias", _match_weather, etc.) que no exigen esa palabra.
-    for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_control, _match_pc_open,
+    for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_clip, _match_pc_read,
+                    _match_pc_control, _match_pc_open,
                     _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,

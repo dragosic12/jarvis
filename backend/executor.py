@@ -88,6 +88,15 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
         elif action_type == "pc_shot":
             return _handle_pc_shot()
 
+        elif action_type == "pc_clip_set":
+            return _handle_pc_clip_set(action_value)
+
+        elif action_type == "pc_clip_get":
+            return _handle_pc_clip_get()
+
+        elif action_type == "pc_read_screen":
+            return _handle_pc_read_screen()
+
         elif action_type == "chat_reset":
             from gemini import reset_chat
             reset_chat()
@@ -474,6 +483,73 @@ def _handle_pc_shot() -> dict:
         return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
     except Exception:
         m = "No he podido hacer la captura del ordenador."
+        return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+
+
+def _handle_pc_clip_set(text: str) -> dict:
+    """Copia texto al portapapeles del sobremesa (sesion interactiva)."""
+    if not text or not text.strip():
+        return {"success": False, "message": "No he entendido que copiar.", "data": None}
+    esc = text.strip().replace("'", "''")
+    try:
+        _pc_run_interactive("Set-Clipboard -Value '" + esc + "'")
+        m = "Copiado al ordenador."
+    except Exception:
+        m = "No he podido copiar al ordenador."
+    return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+
+
+def _handle_pc_clip_get() -> dict:
+    """Lee el portapapeles del sobremesa y lo dice en alto."""
+    import time, os
+    try:
+        _pc_run("Remove-Item -Force \"$env:USERPROFILE\\jarvis_clip.txt\" -ErrorAction SilentlyContinue")
+        _pc_run_interactive("Get-Clipboard | Out-File -Encoding UTF8 \"$env:USERPROFILE\\jarvis_clip.txt\"")
+        for _ in range(8):
+            time.sleep(1)
+            r = subprocess.run(
+                ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                 "user@192.168.1.50:jarvis_clip.txt", "/tmp/jarvis_clip.txt"],
+                capture_output=True, text=True, errors="replace", timeout=15)
+            if r.returncode == 0 and os.path.exists("/tmp/jarvis_clip.txt"):
+                txt = open("/tmp/jarvis_clip.txt", encoding="utf-8-sig", errors="replace").read().strip()
+                m = ("En el portapapeles del ordenador pone: " + txt[:400]) if txt \
+                    else "El portapapeles del ordenador esta vacio."
+                return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+        m = "No he podido leer el portapapeles del ordenador."
+    except Exception:
+        m = "No he podido leer el portapapeles del ordenador."
+    return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+
+
+def _handle_pc_read_screen() -> dict:
+    """Captura la pantalla del sobremesa y la lee/resume en alto (vision de Gemini)."""
+    import time, os
+    try:
+        _pc_run("Remove-Item -Force \"$env:USERPROFILE\\jarvis_shot.png\" -ErrorAction SilentlyContinue")
+        _pc_run_interactive(_PC_SCREENSHOT_HOME, timeout=20)
+        img = None
+        for _ in range(9):
+            time.sleep(1)
+            r = subprocess.run(
+                ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                 "user@192.168.1.50:jarvis_shot.png", "/tmp/jarvis_read.png"],
+                capture_output=True, text=True, errors="replace", timeout=15)
+            if (r.returncode == 0 and os.path.exists("/tmp/jarvis_read.png")
+                    and os.path.getsize("/tmp/jarvis_read.png") > 5000):
+                img = open("/tmp/jarvis_read.png", "rb").read()
+                break
+        if not img:
+            m = "No he podido capturar la pantalla del ordenador."
+            return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+        from gemini import read_image
+        m = read_image(img, "Resume en espanol, breve y para leer en voz alta (maximo 3 frases), "
+                            "lo principal que se ve en esta pantalla de ordenador.")
+        if not m:
+            m = "No he podido leer la pantalla."
+        return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
+    except Exception:
+        m = "No he podido leer la pantalla del ordenador."
         return {"success": True, "message": m, "data": {"type": "spoken_response", "text": m}}
 
 
