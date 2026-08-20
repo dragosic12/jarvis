@@ -50,6 +50,10 @@ export async function reloadSettings() {
 export async function stopSpeaking() {
   try { await bg()?.stopSpeaking(); return true } catch { return false }
 }
+// Pide permisos de telefono (contestar llamadas) y bluetooth (auto-modo-coche)
+export async function requestPhonePerms() {
+  try { const r = await bg()?.requestPhonePerms(); return !!(r && r.granted) } catch { return false }
+}
 
 // Abre una URL con el lanzador nativo de Android (ACTION_VIEW).
 // Los enlaces https verificados (instagram, youtube, spotify...) abren su app

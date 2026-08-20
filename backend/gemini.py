@@ -37,6 +37,7 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - lee la pantalla del ordenador
 - haz una captura y mandamela
 - activa el modo coche / modo conversacion
+- contesta la llamada / cuelga la llamada
 - aprende esta rutina / haz la rutina NOMBRE
 - cuanto me queda de claude
 - traduce TEXTO al IDIOMA

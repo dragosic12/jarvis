@@ -505,12 +505,28 @@ def _match_find_phone(text, raw, context):
 
 
 def _match_car(text, raw, context):
+    # Aprender el bluetooth del coche (para auto-activar el modo coche)
+    if re.search(r"(este|el) bluetooth (es )?(el )?del coche|aprende (el )?bluetooth del coche|"
+                 r"memoriza (el )?bluetooth del coche|recuerda este bluetooth|este es el (bluetooth del )?coche",
+                 text):
+        return _dev_intent(raw, context, "jarvis-car://learn", "Aprender bluetooth del coche")
     # "activa/enciende el modo coche" / "modo coche" / "apaga el modo coche"
     if not re.search(r"modo coche|modo conducir|modo conduccion", text):
         return None
     if re.search(r"\b(apaga|desactiva|quita|sal del|salir del|termina|para el|desactivar)\b", text):
         return _dev_intent(raw, context, "jarvis-car://off", "Modo coche off")
     return _dev_intent(raw, context, "jarvis-car://on", "Modo coche on")
+
+
+def _match_call_control(text, raw, context):
+    """Manos libres: contestar / colgar una llamada por voz."""
+    if re.match(r"^(contesta|descuelga|descolgar|contestar|acepta la llamada|"
+                r"coge la llamada|responde (a )?la llamada)\b", text):
+        return _dev_intent(raw, context, "jarvis-callctl://answer", "Contestar llamada")
+    if re.match(r"^(cuelga|colgar|rechaza|rechazar|no contestes|corta la llamada|"
+                r"cuelga la llamada|rechaza la llamada)\b", text):
+        return _dev_intent(raw, context, "jarvis-callctl://reject", "Colgar llamada")
+    return None
 
 
 def _routine_slug(name):
@@ -1097,7 +1113,7 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
                     _match_car, _match_wa_audio, _match_lists,
-                    _match_call, _match_lock, _match_ringer, _match_volume,
+                    _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_reminder, _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
         if hit:

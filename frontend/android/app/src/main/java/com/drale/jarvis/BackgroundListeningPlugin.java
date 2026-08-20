@@ -21,7 +21,12 @@ import com.getcapacitor.annotation.PermissionCallback;
 /** Puente JS <-> servicio de escucha nativo. */
 @CapacitorPlugin(
     name = "BackgroundListening",
-    permissions = { @Permission(strings = { Manifest.permission.CAMERA }, alias = "camera") }
+    permissions = {
+        @Permission(strings = { Manifest.permission.CAMERA }, alias = "camera"),
+        @Permission(strings = { Manifest.permission.ANSWER_PHONE_CALLS,
+                                Manifest.permission.READ_PHONE_STATE,
+                                Manifest.permission.BLUETOOTH_CONNECT }, alias = "phone")
+    }
 )
 public class BackgroundListeningPlugin extends Plugin {
 
@@ -72,6 +77,23 @@ public class BackgroundListeningPlugin extends Plugin {
     public void stopSpeaking(PluginCall call) {
         ListeningService.stopSpeakingExternal();
         call.resolve();
+    }
+
+    /** Pide permisos de telefono (contestar llamadas) y bluetooth (modo coche). */
+    @PluginMethod
+    public void requestPhonePerms(PluginCall call) {
+        if (getPermissionState("phone") == PermissionState.GRANTED) {
+            JSObject r = new JSObject(); r.put("granted", true); call.resolve(r);
+        } else {
+            requestPermissionForAlias("phone", call, "onPhonePerm");
+        }
+    }
+
+    @PermissionCallback
+    private void onPhonePerm(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("granted", getPermissionState("phone") == PermissionState.GRANTED);
+        call.resolve(r);
     }
 
     /** Abre una URL desde primer plano cuando la escucha la maneja el WebView. */

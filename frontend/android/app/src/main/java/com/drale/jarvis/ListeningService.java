@@ -7,8 +7,11 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
+import android.bluetooth.BluetoothDevice;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
@@ -94,6 +97,8 @@ public class ListeningService extends Service {
     private volatile boolean carMode = false;     // modo coche (lee mensajes en alto)
     private int carOldMusicVol = -1;              // volumen de musica antes del modo coche
     private volatile String pendingAudioJid = ""; // WhatsApp: grabar el proximo audio para este numero
+    private BroadcastReceiver btReceiver;         // auto-modo-coche por Bluetooth
+    private volatile String lastBtAddr = "";      // ultimo bluetooth conectado
 
     // Frases para salir del modo conversacion (sin ir al servidor)
     private static final Pattern EXIT_RE = Pattern.compile(
@@ -111,6 +116,7 @@ public class ListeningService extends Service {
     public void onCreate() {
         super.onCreate();
         self = this;
+        registerBtReceiver();
         try { tone = new ToneGenerator(AudioManager.STREAM_MUSIC, 70); } catch (Exception ignored) {}
 
         // Muchos moviles (Oppo/Realme) no traen motor de voz por defecto en
@@ -518,7 +524,15 @@ public class ListeningService extends Service {
             return;
         }
         if (url.startsWith("jarvis-car://")) {
-            setCarMode(url.substring("jarvis-car://".length()).startsWith("on"));
+            String arg = url.substring("jarvis-car://".length());
+            if (arg.startsWith("learn")) learnCarBt();
+            else setCarMode(arg.startsWith("on"));
+            return;
+        }
+        if (url.startsWith("jarvis-callctl://")) {
+            String arg = url.substring("jarvis-callctl://".length());
+            if (arg.startsWith("answer")) answerCall();
+            else rejectCall();
             return;
         }
         if (url.startsWith("jarvis-conv://")) {
@@ -967,6 +981,61 @@ public class ListeningService extends Service {
         } catch (Exception e) { return false; }
     }
 
+    // ---- Auto-modo-coche por Bluetooth ----
+    private void registerBtReceiver() {
+        try {
+            btReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context c, Intent i) {
+                    try {
+                        BluetoothDevice dev = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                        if (dev == null) return;
+                        String addr = dev.getAddress();
+                        String act = i.getAction();
+                        String carAddr = getSharedPreferences("jarvis", MODE_PRIVATE).getString("car_bt", "");
+                        if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(act)) {
+                            lastBtAddr = addr;
+                            if (!carAddr.isEmpty() && carAddr.equals(addr) && !carMode) setCarMode(true);
+                        } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(act)) {
+                            if (!carAddr.isEmpty() && carAddr.equals(addr) && carMode) setCarMode(false);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            };
+            IntentFilter f = new IntentFilter();
+            f.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+            f.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+            registerReceiver(btReceiver, f);
+        } catch (Exception ignored) {}
+    }
+
+    private void learnCarBt() {
+        if (lastBtAddr == null || lastBtAddr.isEmpty()) {
+            speak("No detecto ningun bluetooth conectado. Conectate al del coche y dimelo.");
+            return;
+        }
+        getSharedPreferences("jarvis", MODE_PRIVATE).edit().putString("car_bt", lastBtAddr).apply();
+        speak("Vale, memorizado. Activare el modo coche cuando se conecte este bluetooth.");
+    }
+
+    // ---- Manos libres de llamadas ----
+    private void answerCall() {
+        try {
+            android.telecom.TelecomManager tm =
+                    (android.telecom.TelecomManager) getSystemService(Context.TELECOM_SERVICE);
+            if (tm != null && Build.VERSION.SDK_INT >= 26) tm.acceptRingingCall();
+        } catch (Exception e) {
+            speak("No he podido contestar. Revisa el permiso de llamadas.");
+        }
+    }
+
+    private void rejectCall() {
+        try {
+            android.telecom.TelecomManager tm =
+                    (android.telecom.TelecomManager) getSystemService(Context.TELECOM_SERVICE);
+            if (tm != null && Build.VERSION.SDK_INT >= 28) tm.endCall();
+        } catch (Exception ignored) {}
+    }
+
     /** El NotificationListener llama aqui para leer un mensaje en alto (solo en modo coche). */
     public static void carAnnounce(String text) {
         ListeningService s = self;
@@ -1128,6 +1197,7 @@ public class ListeningService extends Service {
     public void onDestroy() {
         running = false;
         if (self == this) self = null;
+        if (btReceiver != null) { try { unregisterReceiver(btReceiver); } catch (Exception ignored) {} }
         if (audioThread != null) audioThread.interrupt();
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         stopPlayer();

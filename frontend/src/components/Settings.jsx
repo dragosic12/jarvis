@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { API_BASE } from '../config'
-import { reloadSettings } from '../utils/native'
+import { reloadSettings, requestPhonePerms } from '../utils/native'
 
 // La "Sensibilidad" 0..100 mueve a la vez el umbral minimo y el factor sobre el
 // ruido (el que manda con el VAD adaptativo). 100 = lo mas sensible posible.
@@ -70,6 +70,14 @@ export default function Settings({ authFetch }) {
         className="w-full mt-1 bg-jarvis-accent/20 text-jarvis-accent border border-jarvis-accent/40 rounded-xl py-2.5 font-display tracking-wide glow-border transition-colors">
         {saving ? 'GUARDANDO…' : saved ? '✓ GUARDADO Y APLICADO' : 'GUARDAR'}
       </button>
+
+      <button onClick={() => requestPhonePerms()}
+        className="w-full mt-4 bg-jarvis-card/60 text-jarvis-muted border border-white/10 rounded-xl py-2.5 text-sm font-display tracking-wide">
+        📞 Permisos de llamadas y modo coche
+      </button>
+      <p className="text-[11px] text-jarvis-muted mt-2 text-center">
+        Para contestar/colgar por voz y el auto-modo-coche por Bluetooth.
+      </p>
 
       <p className="text-[11px] text-jarvis-muted mt-4 text-center">
         Para reglas de comandos (frase → acción), usa la pestaña <span className="text-jarvis-accent">Comandos</span>.
