@@ -1034,30 +1034,43 @@ public class ListeningService extends Service {
             + "quieto|chiss?|shh?)\\b");
 
     /** Espera a que el TTS acabe, pero escuchando por si dices "para" para cortarlo. */
+    /** Mientras Jarvis habla, escucha por ENERGIA: si hablas mas alto que el eco de
+     *  su propia voz (barge-in), corta al instante. No depende de transcribir ni de
+     *  la cancelacion de eco, asi que el "para" funciona aunque el AEC sea flojo. */
     private void waitTtsIdle(AudioRecord recorder) {
         long t0 = System.currentTimeMillis();
         try {
-            // Espera corta antes de escuchar "para" (rapido pero sin cortar las
-            // confirmaciones cortas). El AEC cancela la propia voz de Jarvis.
-            Thread.sleep(250);
+            Thread.sleep(200);              // deja arrancar el TTS
+            short[] frame = new short[1600]; // ~100ms
+            double echo = 0;                 // PICO del eco de la voz de Jarvis
+            int calib = 0;
+            long loudStart = 0;
             while (running && ttsBusy() && System.currentTimeMillis() - t0 < 30000) {
-                Segment seg = recordSegment(recorder, 800);
-                if (!running) break;
-                if (seg != null && seg.hadSpeech && seg.pcm.length >= MIN_PCM_BYTES) {
-                    String t = safeTranscribe(wrapWav(seg.pcm));
-                    if (t != null) {
-                        String norm = Normalizer.normalize(t.toLowerCase(Locale.ROOT), Normalizer.Form.NFD)
-                                .replaceAll("\\p{Mn}", "").trim();
-                        // Corta si es una orden CORTA ("para"/"calla"/"jarvis para"...).
-                        // El VAD adaptativo ya calibra al eco de Jarvis, asi que
-                        // hadSpeech aqui = estas hablando por encima de su voz.
-                        int words = norm.isEmpty() ? 0 : norm.split("\\s+").length;
-                        if (words > 0 && words <= 4 && STOP_RE.matcher(norm).find()) {
-                            stopSpeaking();
-                            sendLog(t, "detenido");
-                            break;
-                        }
+                int n = recorder.read(frame, 0, frame.length);
+                if (n <= 0) continue;
+                double sum = 0;
+                for (int i = 0; i < n; i++) { double s = frame[i] / 32768.0; sum += s * s; }
+                double rms = Math.sqrt(sum / n);
+
+                if (calib < 6) {             // ~600ms: toma el pico del eco de Jarvis
+                    echo = Math.max(echo, rms);
+                    calib++;
+                    continue;
+                }
+                // decae lentisimo y NUNCA sube con tu voz (min): el baseline se queda
+                // en el pico del eco de Jarvis
+                echo = Math.max(echo * 0.999, Math.min(rms, echo));
+                double barge = Math.max(echo * 2.0, 0.012);   // hablas por ENCIMA del eco
+
+                if (rms > barge) {
+                    if (loudStart == 0) loudStart = System.currentTimeMillis();
+                    else if (System.currentTimeMillis() - loudStart > 150) { // sostenido, no un clic
+                        stopSpeaking();
+                        sendLog("(voz)", "detenido");
+                        break;
                     }
+                } else {
+                    loudStart = 0;
                 }
             }
         } catch (InterruptedException ignored) {}
