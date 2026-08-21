@@ -106,6 +106,10 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
         elif action_type == "list":
             return _handle_list(action_value)
 
+        elif action_type == "say":
+            return {"success": True, "message": action_value,
+                    "data": {"type": "spoken_response", "text": action_value}}
+
         elif action_type == "search":
             return _handle_search(action_value, query, target_platform)
 

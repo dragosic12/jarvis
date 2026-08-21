@@ -144,6 +144,33 @@ def read_image(image_bytes: bytes, prompt: str, timeout: int = 25) -> str:
     return _gemini_call(contents, _SYS, timeout=timeout, max_tokens=400)
 
 
+def smart_reply(utterance: str, contacts=None):
+    """UNA sola llamada: decide si es orden o charla y responde a la vez (con memoria).
+    Devuelve ('cmd', orden_canonica) si es una orden, o ('say', respuesta) si es
+    charla/pregunta, o ('', '') si falla."""
+    if not utterance:
+        return ("", "")
+    contacts_line = ("Contactos: " + ", ".join(contacts) + ".\n") if contacts else ""
+    sys = (_SYS + "\n\nIMPORTANTE: si el mensaje del usuario es una ORDEN para el movil o el "
+           "PC (no una pregunta ni charla), responde SOLO con 'CMD: ' seguido de la orden "
+           "canonica equivalente de esta lista (rellenando contacto/app/valor) y NADA mas:\n"
+           + _CMDS_HELP + "\n" + contacts_line +
+           "Si es una pregunta o charla, respondela normal y breve (sin 'CMD:').")
+    hist = _load_hist()
+    contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
+    contents.append({"role": "user", "parts": [{"text": utterance}]})
+    txt = _gemini_call(contents, sys, max_tokens=400)
+    if not txt:
+        return ("", "")
+    if txt.strip().upper().startswith("CMD:"):
+        return ("cmd", txt.strip()[4:].strip().strip('"'))
+    # Es charla/pregunta: guardar en el hilo
+    hist.append({"role": "user", "text": utterance})
+    hist.append({"role": "model", "text": txt})
+    _save_hist(hist)
+    return ("say", txt)
+
+
 def interpret_command(transcript: str, contacts=None) -> str:
     """Traduce lo que dijo el usuario a una orden canonica que el parser entiende.
     Devuelve la orden, o 'PREGUNTA' si no es una orden sino charla/pregunta, o ''."""

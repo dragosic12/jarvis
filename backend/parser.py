@@ -1035,28 +1035,7 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     if r.get("matched"):
         return r
 
-    # --- Fallback IA (solo si las reglas no entendieron nada) ---
-    try:
-        from gemini import interpret_command
-        contacts = []
-        try:
-            db = get_db()
-            contacts = [row["name"] for row in db.execute("SELECT name FROM contacts").fetchall()]
-            db.close()
-        except Exception:
-            pass
-        canon = interpret_command(transcript, contacts)
-    except Exception:
-        canon = ""
-
-    if canon and canon.strip().upper() != "PREGUNTA":
-        r2 = _parse_rules(canon, platform)
-        if r2.get("matched"):
-            r2["llm_interpreted"] = True
-            r2["raw_text"] = transcript
-            return r2
-
-    # No es una orden (o no se pudo mapear) -> pregunta/charla a Gemini
+    # Texto sin la wake word
     text = normalize(transcript)
     w0 = text.split()
     if w0 and WAKE_RE.match(w0[0]):
@@ -1064,12 +1043,42 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
     elif len(w0) >= 2 and WAKE_RE.match(w0[0] + w0[1]):
         text = " ".join(w0[2:])
     text = text.strip()
-    if text:
+    if not text:
+        return r
+
+    # --- Fallback IA en UNA sola llamada: orden canonica o respuesta directa ---
+    kind, val = "", ""
+    try:
+        from gemini import smart_reply
+        contacts = []
+        try:
+            db = get_db()
+            contacts = [row["name"] for row in db.execute("SELECT name FROM contacts").fetchall()]
+            db.close()
+        except Exception:
+            pass
+        kind, val = smart_reply(text, contacts)
+    except Exception:
+        kind, val = "", ""
+
+    if kind == "cmd" and val:
+        r2 = _parse_rules(val, platform)
+        if r2.get("matched"):
+            r2["llm_interpreted"] = True
+            r2["raw_text"] = transcript
+            return r2
+    if kind == "say" and val:
+        # Respuesta ya generada (con memoria): el executor solo la lee
         return {"matched": True, "raw_text": transcript, "category": "pregunta",
-                "trigger": "gemini", "action_type": "question", "action_value": text,
-                "command_id": None, "description": "Pregunta", "platform": "all",
+                "trigger": "gemini", "action_type": "say", "action_value": val,
+                "command_id": None, "description": "Respuesta", "platform": "all",
                 "query": text, "context": platform, "silent": False}
-    return r
+
+    # Ultimo recurso (Gemini fallo): pregunta clasica
+    return {"matched": True, "raw_text": transcript, "category": "pregunta",
+            "trigger": "gemini", "action_type": "question", "action_value": text,
+            "command_id": None, "description": "Pregunta", "platform": "all",
+            "query": text, "context": platform, "silent": False}
 
 
 def _parse_rules(transcript: str, platform: str = "auto") -> dict:
