@@ -23,6 +23,7 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - sube el brillo / baja el brillo / pon el brillo al 50 / brillo al maximo
 - bloquea el movil
 - busca el movil
+- abre la camara / hazme una foto / hazme un selfie / graba un video
 - que hora es / que tiempo hace / bateria
 - pon una alarma a las HORA / temporizador de N minutos
 - recuerdame TEXTO en N minutos

@@ -524,6 +524,10 @@ public class ListeningService extends Service {
             setBrightness(url.substring("jarvis-brightness://".length()));
             return;
         }
+        if (url.startsWith("jarvis-camera://")) {
+            openCamera(url.substring("jarvis-camera://".length()));
+            return;
+        }
         if (url.startsWith("jarvis-wa-audio://")) {
             pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
             speak("Vale, dime el audio despues del pitido.");
@@ -673,6 +677,27 @@ public class ListeningService extends Service {
             android.provider.Settings.System.putInt(cr,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS, val);
         } catch (Exception ignored) {}
+    }
+
+    /** Abre la camara: foto (still), video, o selfie (frontal si el fabricante lo respeta). */
+    private void openCamera(String mode) {
+        try {
+            Intent i;
+            if (mode.startsWith("video")) {
+                i = new Intent(android.provider.MediaStore.INTENT_ACTION_VIDEO_CAMERA);
+            } else {
+                i = new Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+                if (mode.startsWith("selfie")) {
+                    i.putExtra("android.intent.extras.CAMERA_FACING", 1);
+                    i.putExtra("android.intent.extras.LENS_FACING_FRONT", 1);
+                    i.putExtra("android.intent.extra.USE_FRONT_CAMERA", true);
+                }
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+        } catch (Exception e) {
+            speak("No he podido abrir la camara.");
+        }
     }
 
     private void setRinger(String mode) {

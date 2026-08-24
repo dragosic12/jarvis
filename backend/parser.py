@@ -543,6 +543,19 @@ def _match_battery(text, raw, context):
     return None
 
 
+def _match_camera(text, raw, context):
+    """Abrir la camara: foto, selfie o video."""
+    if re.search(r"\bselfie\b|camara frontal|autofoto|foto frontal|hazme un selfie", text):
+        return _dev_intent(raw, context, "jarvis-camera://selfie", "Selfie")
+    if re.search(r"graba(r|me)? (un |el )?video|graba(r|me)? (un )?clip|modo video|"
+                 r"ponte a grabar (un )?video|empieza a grabar (un )?video", text):
+        return _dev_intent(raw, context, "jarvis-camera://video", "Grabar video")
+    if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame) (una |me una )?foto\b|"
+                 r"abre(me)? la camara|abrir la camara|abre camara|pon la camara", text):
+        return _dev_intent(raw, context, "jarvis-camera://photo", "Camara foto")
+    return None
+
+
 def _match_find_phone(text, raw, context):
     # "donde estas", "busca/encuentra/haz sonar el movil" -> hace sonar el telefono
     if re.search(r"\bdonde (estas|te has metido|te metiste|andas|te escondes)\b", text) \
@@ -1167,7 +1180,7 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_pc_control, _match_pc_open,
                     _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
-                    _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
+                    _match_weather, _match_help, _match_torch, _match_battery, _match_camera, _match_find_phone,
                     _match_car, _match_wa_audio, _match_lists,
                     _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_brightness,
