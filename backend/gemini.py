@@ -24,6 +24,10 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - bloquea el movil
 - busca el movil
 - abre la camara / hazme una foto / hazme un selfie / graba un video
+- enciende el bluetooth / apaga el bluetooth / abre el wifi
+- cuanto es 15 por ciento de 240 (calculos)
+- lee mis notificaciones / que notificaciones tengo
+- linterna sos / haz parpadear la linterna
 - que hora es / que tiempo hace / bateria
 - pon una alarma a las HORA / temporizador de N minutos
 - recuerdame TEXTO en N minutos

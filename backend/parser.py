@@ -526,7 +526,9 @@ def _dev_intent(raw, context, value, desc, category="dispositivo", silent=True):
 def _match_torch(text, raw, context):
     if not re.search(r"linterna|flash\b|luz del movil", text):
         return None
-    if re.search(r"apag|quita|off", text):
+    if re.search(r"\bsos\b|parpad|intermitent|destell|discoteca", text):
+        act = "sos"
+    elif re.search(r"apag|quita|off", text):
         act = "off"
     elif re.search(r"encien|pon|activa|dale|enciende|on\b", text):
         act = "on"
@@ -543,6 +545,59 @@ def _match_battery(text, raw, context):
     return None
 
 
+def _calc_eval(expr):
+    import ast, operator as op
+    ops = {ast.Add: op.add, ast.Sub: op.sub, ast.Mult: op.mul, ast.Div: op.truediv,
+           ast.Pow: op.pow, ast.Mod: op.mod, ast.USub: op.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant):
+            return n.value
+        if isinstance(n, ast.BinOp):
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp):
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError
+    try:
+        return ev(ast.parse(expr, mode="eval").body)
+    except Exception:
+        return None
+
+
+def _match_calc(text, raw, context):
+    """Calculadora por voz: 'cuanto es 15 por ciento de 240', '12 por 8', '100 entre 4'."""
+    if not re.match(r"^(cuanto (es|son|da|vale|hacen|seria|serian)|calcula|calculame|"
+                    r"resultado de|dime cuanto es)\b", text):
+        return None
+    e = " " + text + " "
+    e = re.sub(r"(\d+(?:[.,]\d+)?)\s*(?:%|por ?ciento)\s+de\s+(\d+(?:[.,]\d+)?)",
+               lambda m: f" (({m.group(1).replace(',', '.')})/100*({m.group(2).replace(',', '.')})) ", e)
+    e = re.sub(r"\bpor ?ciento\b", "/100", e)
+    e = re.sub(r"\b(multiplicado por|por|veces)\b", "*", e)
+    e = re.sub(r"\b(mas|sumado a|y)\b", "+", e)
+    e = re.sub(r"\b(menos|restado)\b", "-", e)
+    e = re.sub(r"\b(dividido entre|dividido por|dividido|entre)\b", "/", e)
+    e = re.sub(r"\b(elevado a|a la potencia de)\b", "**", e)
+    e = re.sub(r"\bal cuadrado\b", "**2", e)
+    e = re.sub(r"\bal cubo\b", "**3", e)
+    e = e.replace(",", ".")
+    m = re.search(r"[-+*/%.\d()][-+*/%.\d()\s]*", e)
+    if not m:
+        return None
+    expr = m.group(0).strip()
+    if not re.search(r"\d", expr) or not re.search(r"[-+*/]", expr):
+        return None   # no es una operacion -> que lo responda Gemini
+    val = _calc_eval(expr)
+    if val is None:
+        return None
+    if isinstance(val, float):
+        val = int(val) if val == int(val) else round(val, 4)
+    return {"matched": True, "raw_text": raw, "category": "calculo", "trigger": "calc",
+            "action_type": "say", "action_value": f"Son {val}.", "command_id": None,
+            "description": f"Calculo: {val}", "platform": "all", "query": None,
+            "context": context, "silent": False}
+
+
 def _match_camera(text, raw, context):
     """Abrir la camara: foto, selfie o video."""
     if re.search(r"\bselfie\b|camara frontal|autofoto|foto frontal|hazme un selfie", text):
@@ -553,6 +608,25 @@ def _match_camera(text, raw, context):
     if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame) (una |me una )?foto\b|"
                  r"abre(me)? la camara|abrir la camara|abre camara|pon la camara", text):
         return _dev_intent(raw, context, "jarvis-camera://photo", "Camara foto")
+    return None
+
+
+def _match_connectivity(text, raw, context):
+    """Bluetooth on/off y abrir ajustes de WiFi."""
+    if re.search(r"bluetooth|blutu|blue ?tooth", text):
+        if re.search(r"apag|desactiv|quit", text):
+            return _dev_intent(raw, context, "jarvis-bt://off", "Bluetooth off")
+        return _dev_intent(raw, context, "jarvis-bt://on", "Bluetooth on")
+    if re.search(r"\bwifi\b|wi ?fi|wi-fi", text):
+        return _dev_intent(raw, context, "jarvis-wifi://", "Ajustes WiFi")
+    return None
+
+
+def _match_read_notifs(text, raw, context):
+    """Leer en alto las ultimas notificaciones."""
+    if re.search(r"(lee(me)?|dime|que hay en) (las )?notificacion|que notificaciones tengo|"
+                 r"que me ha (llegado|entrado)|leeme lo que me ha llegado", text):
+        return _dev_intent(raw, context, "jarvis-notif://read", "Leer notificaciones")
     return None
 
 
@@ -1180,7 +1254,8 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_pc_control, _match_pc_open,
                     _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
-                    _match_weather, _match_help, _match_torch, _match_battery, _match_camera, _match_find_phone,
+                    _match_weather, _match_help, _match_calc, _match_torch, _match_battery, _match_camera, _match_find_phone,
+                    _match_connectivity, _match_read_notifs,
                     _match_car, _match_wa_audio, _match_lists,
                     _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_brightness,

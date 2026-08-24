@@ -528,6 +528,23 @@ public class ListeningService extends Service {
             openCamera(url.substring("jarvis-camera://".length()));
             return;
         }
+        if (url.startsWith("jarvis-bt://")) {
+            setBluetooth(url.substring("jarvis-bt://".length()).startsWith("on"));
+            return;
+        }
+        if (url.startsWith("jarvis-wifi://")) {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_WIFI_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                speak("Te abro los ajustes de wifi.");
+            } catch (Exception ignored) {}
+            return;
+        }
+        if (url.startsWith("jarvis-notif://")) {
+            readNotifs();
+            return;
+        }
         if (url.startsWith("jarvis-wa-audio://")) {
             pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
             speak("Vale, dime el audio despues del pitido.");
@@ -700,6 +717,44 @@ public class ListeningService extends Service {
         }
     }
 
+    /** Enciende/apaga el Bluetooth; si Android no deja (13+), abre los ajustes. */
+    private void setBluetooth(boolean on) {
+        try {
+            android.bluetooth.BluetoothManager bm =
+                    (android.bluetooth.BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+            android.bluetooth.BluetoothAdapter ad = bm != null ? bm.getAdapter()
+                    : android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+            if (ad == null) { speak("Este movil no tiene bluetooth."); return; }
+            boolean done = false;
+            try {
+                if (on && !ad.isEnabled()) done = ad.enable();
+                else if (!on && ad.isEnabled()) done = ad.disable();
+                else done = true;
+            } catch (Exception ignored) {}
+            if (done) {
+                speak(on ? "Bluetooth encendido." : "Bluetooth apagado.");
+            } else {
+                Intent i = new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(i); } catch (Exception ignored) {}
+                speak("Te abro los ajustes de bluetooth.");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    /** Lee en alto las ultimas notificaciones que guardo el listener. */
+    private void readNotifs() {
+        java.util.List<String> ns = JarvisNotifService.getRecent();
+        if (ns == null || ns.isEmpty()) {
+            speak("No tienes notificaciones recientes, o falta activar el acceso a notificaciones.");
+            return;
+        }
+        StringBuilder sb = new StringBuilder("Tus ultimas notificaciones. ");
+        int n = 0;
+        for (int k = ns.size() - 1; k >= 0 && n < 6; k--, n++) sb.append(ns.get(k)).append(". ");
+        speak(sb.toString());
+    }
+
     private void setRinger(String mode) {
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -740,6 +795,29 @@ public class ListeningService extends Service {
                 }
             }
             if (camId == null) { speak("Este movil no tiene linterna"); return; }
+            if ("sos".equals(act)) {
+                final String fcam = camId;
+                final CameraManager fcm = cm;
+                new Thread(() -> {
+                    // SOS en Morse: . . .  - - -  . . .  (repetido un par de veces)
+                    int[] pat = {200, 200, 200, 600, 600, 600, 200, 200, 200};
+                    try {
+                        for (int rep = 0; rep < 3 && running; rep++) {
+                            for (int d : pat) {
+                                if (!running) break;
+                                fcm.setTorchMode(fcam, true);
+                                Thread.sleep(d);
+                                fcm.setTorchMode(fcam, false);
+                                Thread.sleep(200);
+                            }
+                            Thread.sleep(700);
+                        }
+                    } catch (Exception ignored) {}
+                    try { fcm.setTorchMode(fcam, false); } catch (Exception ignored) {}
+                    torchOn = false;
+                }).start();
+                return;
+            }
             boolean target = "on".equals(act) || (!"off".equals(act) && !torchOn);
             cm.setTorchMode(camId, target);
             torchOn = target;

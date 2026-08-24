@@ -5,7 +5,10 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -23,13 +26,16 @@ public class JarvisNotifService extends NotificationListenerService {
         MSG_APPS.add("com.google.android.apps.messaging"); // SMS
     }
 
+    // Buffer de las ultimas notificaciones (para leerlas a demanda por voz)
+    private static final List<String> RECENT = Collections.synchronizedList(new ArrayList<String>());
+    public static List<String> getRecent() { return new ArrayList<>(RECENT); }
+
     private String lastKey = "";
     private long lastAt = 0;
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         try {
-            if (!ListeningService.isCarMode()) return;
             if (sbn == null) return;
             String pkg = sbn.getPackageName();
             if (pkg == null || !MSG_APPS.contains(pkg)) return;
@@ -58,7 +64,11 @@ public class JarvisNotifService extends NotificationListenerService {
 
             String said = title.isEmpty() ? ("Mensaje: " + text)
                                           : ("Mensaje de " + title + ": " + text);
-            ListeningService.carAnnounce(said);
+            synchronized (RECENT) {
+                RECENT.add(said);
+                while (RECENT.size() > 10) RECENT.remove(0);
+            }
+            if (ListeningService.isCarMode()) ListeningService.carAnnounce(said);
         } catch (Exception ignored) {}
     }
 }
