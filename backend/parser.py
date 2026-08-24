@@ -420,10 +420,24 @@ def _match_volume(text, raw, context):
     elif re.search(r"\b(sube|subir|subeme|aumenta|abre)\b", text):
         act = "up"
     else:
-        m = re.search(r"(?:al?|a la) (mitad|\d{1,3})", text)
+        # "al 2 de 10" -> 2/10 = 20%
+        m = re.search(r"(?:al?|a|a la)\s+(\d{1,3})\s+de\s+(\d{1,3})", text)
         if m:
-            v = 50 if m.group(1) == "mitad" else min(int(m.group(1)), 100)
-            act = f"set:{v}"
+            num, den = int(m.group(1)), int(m.group(2))
+            act = f"set:{min(100, round(num / den * 100)) if den else 0}"
+        else:
+            m = re.search(r"(?:al?|a|a la)\s+(mitad|\d{1,3})", text)
+            if m:
+                if m.group(1) == "mitad":
+                    v = 50
+                else:
+                    n = int(m.group(1))
+                    # "por ciento"/"%" o numero >10 -> porcentaje; si no, escala 0-10
+                    if re.search(r"por ?ciento|%", text) or n > 10:
+                        v = min(n, 100)
+                    else:
+                        v = min(n * 10, 100)   # "al 2" = 2 de 10 = 20%
+                act = f"set:{v}"
     if not act:
         return None
     return {
