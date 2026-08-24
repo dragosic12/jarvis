@@ -28,6 +28,8 @@ public class JarvisA11yService extends AccessibilityService {
     private static JarvisA11yService instance;
     private static volatile String curPkg = "";
     private static volatile long armSendUntil = 0;   // ventana para auto-enviar WhatsApp
+    private static volatile long armShutterUntil = 0; // ventana para auto-disparo de foto
+    private static volatile long armShutterAt = 0;
 
     @Override
     protected void onServiceConnected() {
@@ -57,6 +59,11 @@ public class JarvisA11yService extends AccessibilityService {
         // Se reintenta en cada evento (la UI tarda en cargar el texto tras abrir el chat).
         if (armSendUntil > SystemClock.uptimeMillis() && "com.whatsapp".equals(curPkg)) {
             if (tryClickSend()) armSendUntil = 0;
+        }
+
+        // Auto-disparo de foto: si esta armado y hay una camara delante, pulsa el obturador
+        if (armShutterUntil > SystemClock.uptimeMillis() && isCameraPkg(curPkg)) {
+            if (tryClickShutter()) armShutterUntil = 0;
         }
 
         // --- FASE 1: grabador de rutinas ------------------------------------
@@ -124,6 +131,46 @@ public class JarvisA11yService extends AccessibilityService {
     /** Arma el auto-envio: durante los proximos 9s, al ver WhatsApp delante, pulsa enviar. */
     public static void armSend() {
         armSendUntil = SystemClock.uptimeMillis() + 9000;
+    }
+
+    /** Arma el auto-disparo: durante ~6s, al ver una camara delante, pulsa el obturador. */
+    public static void armShutter() {
+        armShutterUntil = SystemClock.uptimeMillis() + 6000;
+        armShutterAt = SystemClock.uptimeMillis();
+    }
+
+    private static boolean isCameraPkg(String pkg) {
+        if (pkg == null) return false;
+        String p = pkg.toLowerCase(Locale.ROOT);
+        return p.contains("camera") || p.contains("camara") || p.contains("gcam");
+    }
+
+    /** Pulsa el obturador: por descripcion, y si no, toca donde suele estar (abajo-centro). */
+    private boolean tryClickShutter() {
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root != null) {
+            try {
+                AccessibilityNodeInfo d = findByDesc(root, new String[]{
+                        "obturador", "hacer foto", "tomar foto", "capturar", "disparar",
+                        "hacer una foto", "sacar foto", "boton del obturador",
+                        "shutter", "take photo", "take picture", "capture"});
+                if (clickNode(d)) return true;
+            } catch (Exception ignored) {}
+        }
+        // Fallback por coordenada, tras dar ~1,2s a que cargue la camara
+        if (SystemClock.uptimeMillis() - armShutterAt < 1200) return false;
+        try {
+            DisplayMetrics dm = getResources().getDisplayMetrics();
+            float x = dm.widthPixels / 2f;
+            float y = dm.heightPixels * 0.88f;
+            Path path = new Path();
+            path.moveTo(x, y);
+            GestureDescription gd = new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path, 0, 60))
+                    .build();
+            dispatchGesture(gd, null, null);
+            return true;
+        } catch (Exception e) { return false; }
     }
 
     /** Busca el boton de enviar de WhatsApp y lo pulsa. Devuelve true si lo consiguio. */

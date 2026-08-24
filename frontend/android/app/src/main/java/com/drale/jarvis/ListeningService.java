@@ -712,6 +712,10 @@ public class ListeningService extends Service {
             }
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
+            // Auto-disparo (solo foto/selfie): accesibilidad pulsa el obturador
+            if ((mode.startsWith("photo") || mode.startsWith("selfie")) && JarvisA11yService.isReady()) {
+                JarvisA11yService.armShutter();
+            }
         } catch (Exception e) {
             speak("No he podido abrir la camara.");
         }

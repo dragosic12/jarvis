@@ -605,8 +605,10 @@ def _match_camera(text, raw, context):
     if re.search(r"graba(r|me)? (un |el )?video|graba(r|me)? (un )?clip|modo video|"
                  r"ponte a grabar (un )?video|empieza a grabar (un )?video", text):
         return _dev_intent(raw, context, "jarvis-camera://video", "Grabar video")
-    if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame) (una |me una )?foto\b|"
-                 r"abre(me)? la camara|abrir la camara|abre camara|pon la camara", text):
+    if re.search(r"abre(me)? la camara|abrir la camara|abre camara|pon la camara", text):
+        return _dev_intent(raw, context, "jarvis-camera://open", "Abrir camara")
+    if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame|hazme|sacate) (una |me una )?foto\b|"
+                 r"tira(me)? una foto|dispara una foto", text):
         return _dev_intent(raw, context, "jarvis-camera://photo", "Camara foto")
     return None
 
