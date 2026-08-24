@@ -674,6 +674,37 @@ def _match_read_notifs(text, raw, context):
     return None
 
 
+def _match_location(text, raw, context):
+    if re.search(r"donde estoy|mi ubicacion|en que (calle|sitio|lugar|parte|zona) estoy|"
+                 r"donde me encuentro|que direccion es esta|localizame|mi posicion", text):
+        return _dev_intent(raw, context, "jarvis-loc://", "Ubicacion", category="info", silent=False)
+    return None
+
+
+def _match_vibrate(text, raw, context):
+    if re.search(r"\bvibra\b|haz(lo)? vibrar|vibra el movil|dale un toque de vibracion", text) \
+       and not re.search(r"modo vibracion|en vibracion", text):
+        return _dev_intent(raw, context, "jarvis-vibrate://", "Vibrar")
+    return None
+
+
+def _match_phoneclip(text, raw, context):
+    """Copiar al portapapeles del MOVIL (via Termux)."""
+    if re.search(r"ordenador|\bpc\b|sobremesa", text):
+        return None
+    if not re.search(r"copia.*\b(movil|telefono)\b", text):
+        return None
+    from urllib.parse import quote
+    mr = re.search(r"copia(?:me)?(?:\s+esto)?\s+(?:al|en el|en)\s+(?:movil|telefono)\s+(.+)$",
+                   raw, re.IGNORECASE)
+    if not mr:
+        mr = re.search(r"copia(?:me)?\s+(.+?)\s+(?:al|en el)\s+(?:movil|telefono)\s*$", raw, re.IGNORECASE)
+    if not mr or not mr.group(1).strip():
+        return None
+    return _dev_intent(raw, context, f"jarvis-termux://clip?set={quote(mr.group(1).strip())}",
+                       "Copiar al movil")
+
+
 def _match_find_phone(text, raw, context):
     # "donde estas", "busca/encuentra/haz sonar el movil" -> hace sonar el telefono
     if re.search(r"\bdonde (estas|te has metido|te metiste|andas|te escondes)\b", text) \
@@ -1294,12 +1325,12 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
     # (p.ej. "termina la rutina y llamala buenos dias") puede ser interceptado
     # antes de tiempo por matchers mas sueltos (_match_briefing con "buenos
     # dias", _match_weather, etc.) que no exigen esa palabra.
-    for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_clip, _match_pc_read,
+    for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_clip, _match_phoneclip, _match_pc_read,
                     _match_pc_control, _match_pc_open,
                     _match_claude, _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_calc, _match_torch, _match_battery, _match_camera, _match_find_phone,
-                    _match_connectivity, _match_read_notifs,
+                    _match_connectivity, _match_read_notifs, _match_location, _match_vibrate,
                     _match_car, _match_sms, _match_voicenote, _match_wa_audio, _match_lists,
                     _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_brightness,

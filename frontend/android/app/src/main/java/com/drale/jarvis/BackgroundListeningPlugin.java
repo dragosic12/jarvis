@@ -25,7 +25,8 @@ import com.getcapacitor.annotation.PermissionCallback;
         @Permission(strings = { Manifest.permission.CAMERA }, alias = "camera"),
         @Permission(strings = { Manifest.permission.ANSWER_PHONE_CALLS,
                                 Manifest.permission.READ_PHONE_STATE,
-                                Manifest.permission.BLUETOOTH_CONNECT }, alias = "phone")
+                                Manifest.permission.BLUETOOTH_CONNECT,
+                                Manifest.permission.ACCESS_FINE_LOCATION }, alias = "phone")
     }
 )
 public class BackgroundListeningPlugin extends Plugin {

@@ -549,6 +549,14 @@ public class ListeningService extends Service {
             handleTermux(url.substring("jarvis-termux://".length()));
             return;
         }
+        if (url.startsWith("jarvis-loc://")) {
+            getLocation();
+            return;
+        }
+        if (url.startsWith("jarvis-vibrate://")) {
+            vibratePhone();
+            return;
+        }
         if (url.startsWith("jarvis-wa-audio://")) {
             pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
             speak("Vale, dime el audio despues del pitido.");
@@ -798,6 +806,10 @@ public class ListeningService extends Service {
                     runTermux("termux-sms-send", new String[]{"-n", num, msg});
                     speak("SMS enviado.");
                 }
+            } else if (spec.startsWith("clip?set=")) {
+                String txt = java.net.URLDecoder.decode(spec.substring("clip?set=".length()), "UTF-8");
+                runTermux("termux-clipboard-set", new String[]{txt});
+                speak("Copiado en el movil.");
             } else if (spec.startsWith("recordstop")) {
                 runTermux("termux-microphone-record", new String[]{"-q"});
                 speak("Nota de voz guardada.");
@@ -805,6 +817,66 @@ public class ListeningService extends Service {
                 String path = "/sdcard/jarvis_nota_" + System.currentTimeMillis() + ".m4a";
                 runTermux("termux-microphone-record", new String[]{"-f", path, "-l", "120"});
                 speak("Grabando la nota de voz. Di, termina la nota, cuando acabes.");
+            }
+        } catch (Exception ignored) {}
+    }
+
+    /** "Donde estoy": ubicacion + direccion (Geocoder). Requiere permiso de ubicacion. */
+    private void getLocation() {
+        try {
+            if (Build.VERSION.SDK_INT >= 23
+                    && checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    && checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                    != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                speak("Necesito permiso de ubicacion. Activalo en Ajustes de Jarvis.");
+                return;
+            }
+            android.location.LocationManager lm =
+                    (android.location.LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            android.location.Location loc = null;
+            for (String prov : new String[]{"gps", "network", "passive"}) {
+                try {
+                    android.location.Location l = lm.getLastKnownLocation(prov);
+                    if (l != null && (loc == null || l.getTime() > loc.getTime())) loc = l;
+                } catch (Exception ignored) {}
+            }
+            if (loc == null) { speak("No consigo tu ubicacion ahora mismo."); return; }
+            String said = null;
+            try {
+                android.location.Geocoder gc = new android.location.Geocoder(this, new Locale("es"));
+                java.util.List<android.location.Address> addrs =
+                        gc.getFromLocation(loc.getLatitude(), loc.getLongitude(), 1);
+                if (addrs != null && !addrs.isEmpty()) {
+                    android.location.Address a = addrs.get(0);
+                    StringBuilder sb = new StringBuilder("Estas en ");
+                    if (a.getThoroughfare() != null) {
+                        sb.append(a.getThoroughfare());
+                        if (a.getSubThoroughfare() != null) sb.append(" ").append(a.getSubThoroughfare());
+                        sb.append(", ");
+                    }
+                    if (a.getLocality() != null) sb.append(a.getLocality());
+                    else if (a.getSubAdminArea() != null) sb.append(a.getSubAdminArea());
+                    said = sb.toString();
+                }
+            } catch (Exception ignored) {}
+            if (said == null) {
+                said = String.format(Locale.ROOT, "Estas cerca de latitud %.4f, longitud %.4f",
+                        loc.getLatitude(), loc.getLongitude());
+            }
+            speak(said);
+        } catch (Exception e) {
+            speak("No he podido obtener la ubicacion.");
+        }
+    }
+
+    private void vibratePhone() {
+        try {
+            Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (v != null && v.hasVibrator()) {
+                if (Build.VERSION.SDK_INT >= 26)
+                    v.vibrate(VibrationEffect.createOneShot(600, VibrationEffect.DEFAULT_AMPLITUDE));
+                else v.vibrate(600);
             }
         } catch (Exception ignored) {}
     }
