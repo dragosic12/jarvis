@@ -33,6 +33,8 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - recuerdame TEXTO en N minutos
 - dile a CONTACTO que MENSAJE
 - manda un audio a CONTACTO
+- manda un SMS a CONTACTO que MENSAJE
+- graba una nota de voz / termina la nota de voz
 - abre el chat de CONTACTO
 - abre APP  (youtube, spotify, whatsapp, instagram, tiktok, gmail...)
 - abre APP en el ordenador

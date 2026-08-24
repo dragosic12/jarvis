@@ -545,6 +545,10 @@ public class ListeningService extends Service {
             readNotifs();
             return;
         }
+        if (url.startsWith("jarvis-termux://")) {
+            handleTermux(url.substring("jarvis-termux://".length()));
+            return;
+        }
         if (url.startsWith("jarvis-wa-audio://")) {
             pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
             speak("Vale, dime el audio despues del pitido.");
@@ -757,6 +761,52 @@ public class ListeningService extends Service {
         int n = 0;
         for (int k = ns.size() - 1; k >= 0 && n < 6; k--, n++) sb.append(ns.get(k)).append(". ");
         speak(sb.toString());
+    }
+
+    // ---- Integracion con Termux (Termux:API) ----
+    private void runTermux(String bin, String[] args) {
+        try {
+            Intent i = new Intent();
+            i.setClassName("com.termux", "com.termux.app.RunCommandService");
+            i.setAction("com.termux.RUN_COMMAND");
+            i.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/" + bin);
+            if (args != null) i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", args);
+            i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+            i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception e) {
+            speak("No he podido usar Termux. Comprueba que esta instalado y permitido.");
+        }
+    }
+
+    private void handleTermux(String spec) {
+        try {
+            if (spec.startsWith("photo:")) {
+                String cam = spec.substring("photo:".length());
+                String path = "/sdcard/DCIM/jarvis_" + System.currentTimeMillis() + ".jpg";
+                runTermux("termux-camera-photo", new String[]{"-c", cam, path});
+                speak("Foto hecha.");
+            } else if (spec.startsWith("sms?")) {
+                String q = spec.substring("sms?".length());
+                String num = "", msg = "";
+                for (String kv : q.split("&")) {
+                    if (kv.startsWith("n=")) num = kv.substring(2);
+                    else if (kv.startsWith("m=")) msg = java.net.URLDecoder.decode(kv.substring(2), "UTF-8");
+                }
+                if (!num.isEmpty()) {
+                    runTermux("termux-sms-send", new String[]{"-n", num, msg});
+                    speak("SMS enviado.");
+                }
+            } else if (spec.startsWith("recordstop")) {
+                runTermux("termux-microphone-record", new String[]{"-q"});
+                speak("Nota de voz guardada.");
+            } else if (spec.startsWith("record")) {
+                String path = "/sdcard/jarvis_nota_" + System.currentTimeMillis() + ".m4a";
+                runTermux("termux-microphone-record", new String[]{"-f", path, "-l", "120"});
+                speak("Grabando la nota de voz. Di, termina la nota, cuando acabes.");
+            }
+        } catch (Exception ignored) {}
     }
 
     private void setRinger(String mode) {

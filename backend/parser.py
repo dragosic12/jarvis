@@ -599,17 +599,59 @@ def _match_calc(text, raw, context):
 
 
 def _match_camera(text, raw, context):
-    """Abrir la camara: foto, selfie o video."""
+    """Foto (silenciosa via Termux), selfie, abrir camara o grabar video."""
+    # Selfie -> foto silenciosa camara frontal (Termux)
     if re.search(r"\bselfie\b|camara frontal|autofoto|foto frontal|hazme un selfie", text):
-        return _dev_intent(raw, context, "jarvis-camera://selfie", "Selfie")
+        return _dev_intent(raw, context, "jarvis-termux://photo:1", "Selfie")
     if re.search(r"graba(r|me)? (un |el )?video|graba(r|me)? (un )?clip|modo video|"
                  r"ponte a grabar (un )?video|empieza a grabar (un )?video", text):
         return _dev_intent(raw, context, "jarvis-camera://video", "Grabar video")
     if re.search(r"abre(me)? la camara|abrir la camara|abre camara|pon la camara", text):
         return _dev_intent(raw, context, "jarvis-camera://open", "Abrir camara")
-    if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame|hazme|sacate) (una |me una )?foto\b|"
-                 r"tira(me)? una foto|dispara una foto", text):
-        return _dev_intent(raw, context, "jarvis-camera://photo", "Camara foto")
+    # Hacer foto -> silenciosa via Termux (no abre la camara)
+    if re.search(r"\b(haz|hazme|sacame|saca|hacer|toma|tomame|echame|sacate) (una |me una )?foto\b|"
+                 r"tira(me)? una foto|dispara una foto|hazme una foto", text):
+        return _dev_intent(raw, context, "jarvis-termux://photo:0", "Foto")
+    return None
+
+
+def _match_sms(text, raw, context):
+    """Enviar un SMS por voz (via Termux). 'manda un SMS a X que Y'."""
+    m = re.match(r"^(?:manda(?:le)?|envia(?:le)?|mandale) (?:un |el )?"
+                 r"(?:sms|mensaje de texto|mensaje sms|un texto|texto) (?:a |al )(.+)$", text)
+    if not m:
+        return None
+    rest = m.group(1).strip()
+    name, msg = None, ""
+    for marker in MSG_MARKERS:
+        idx = rest.find(marker)
+        if idx > 0:
+            name = rest[:idx].strip()
+            msg = rest[idx + len(marker):].strip()
+            break
+    if name is None:
+        name = rest
+    contact = _get_contact(name)
+    if not contact:
+        return _no_contact(raw, name)
+    from urllib.parse import quote
+    digits = re.sub(r"\D", "", contact["phone"])
+    if len(digits) == 9:
+        digits = "34" + digits
+    return {"matched": True, "raw_text": raw, "category": "sms", "trigger": contact["name"],
+            "action_type": "url", "action_value": f"jarvis-termux://sms?n=+{digits}&m={quote(msg)}",
+            "command_id": None, "description": f"SMS a {contact['name']}", "platform": "all",
+            "query": None, "context": context, "silent": True}
+
+
+def _match_voicenote(text, raw, context):
+    """Nota de voz (audio real) via Termux."""
+    if re.search(r"(termina|guarda|para) (la |esta |una )?(nota de voz|grabacion de voz)|"
+                 r"deja de grabar( la nota)?", text):
+        return _dev_intent(raw, context, "jarvis-termux://recordstop", "Guardar nota de voz")
+    if re.search(r"graba(me)? (una )?nota de voz|nota de voz nueva|empieza (una |a grabar una )nota de voz|"
+                 r"grabame un audio para mi", text):
+        return _dev_intent(raw, context, "jarvis-termux://record", "Grabar nota de voz")
     return None
 
 
@@ -1258,7 +1300,7 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_calc, _match_torch, _match_battery, _match_camera, _match_find_phone,
                     _match_connectivity, _match_read_notifs,
-                    _match_car, _match_wa_audio, _match_lists,
+                    _match_car, _match_sms, _match_voicenote, _match_wa_audio, _match_lists,
                     _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
                     _match_brightness,
                     _match_reminder, _match_time, _match_alarm_in, _match_timer, _match_alarm):
