@@ -14,11 +14,11 @@ import { API_BASE } from './config'
 
 const TABS = [
   { id: 'voice', label: 'Voz' },
-  { id: 'guia', label: 'Guía' },
   { id: 'commands', label: 'Comandos' },
+  { id: 'logs', label: 'Historial' },
+  { id: 'guia', label: 'Guía' },
   { id: 'ajustes', label: 'Ajustes' },
   { id: 'gestos', label: 'Gestos' },
-  { id: 'logs', label: 'Historial' },
 ]
 
 export default function App() {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { API_BASE } from '../config'
-import { reloadSettings, requestPhonePerms } from '../utils/native'
+import { reloadSettings, requestPhonePerms, enableDeviceAdmin } from '../utils/native'
 
 // La "Sensibilidad" 0..100 mueve a la vez el umbral minimo y el factor sobre el
 // ruido (el que manda con el VAD adaptativo). 100 = lo mas sensible posible.
@@ -74,6 +74,10 @@ export default function Settings({ authFetch }) {
       <button onClick={() => requestPhonePerms()}
         className="w-full mt-4 bg-jarvis-card/60 text-jarvis-muted border border-white/10 rounded-xl py-2.5 text-sm font-display tracking-wide">
         📞 Permisos de llamadas y modo coche
+      </button>
+      <button onClick={() => enableDeviceAdmin()}
+        className="w-full mt-2 bg-jarvis-card/60 text-jarvis-muted border border-white/10 rounded-xl py-2.5 text-sm font-display tracking-wide">
+        🔒 Activar bloqueo de pantalla por voz
       </button>
       <p className="text-[11px] text-jarvis-muted mt-2 text-center">
         Para contestar/colgar por voz y el auto-modo-coche por Bluetooth.

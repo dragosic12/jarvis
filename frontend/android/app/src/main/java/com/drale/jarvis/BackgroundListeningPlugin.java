@@ -86,6 +86,20 @@ public class BackgroundListeningPlugin extends Plugin {
         call.resolve();
     }
 
+    /** Abre la pantalla para activar el administrador de dispositivo (bloquear por voz). */
+    @PluginMethod
+    public void enableDeviceAdmin(PluginCall call) {
+        try {
+            ComponentName admin = new ComponentName(getContext(), JarvisAdmin.class);
+            Intent i = new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+            i.putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin);
+            i.putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                    "Permite a Jarvis bloquear el movil por voz");
+            getActivity().startActivity(i);
+        } catch (Exception ignored) {}
+        call.resolve();
+    }
+
     /** Pide permisos de telefono (contestar llamadas) y bluetooth (modo coche). */
     @PluginMethod
     public void requestPhonePerms(PluginCall call) {

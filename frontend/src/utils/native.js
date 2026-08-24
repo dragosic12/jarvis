@@ -54,6 +54,10 @@ export async function stopSpeaking() {
 export async function exitConversation() {
   try { await bg()?.exitConversation(); return true } catch { return false }
 }
+// Abre la pantalla para activar el bloqueo por voz (administrador de dispositivo)
+export async function enableDeviceAdmin() {
+  try { await bg()?.enableDeviceAdmin(); return true } catch { return false }
+}
 // Pide permisos de telefono (contestar llamadas) y bluetooth (auto-modo-coche)
 export async function requestPhonePerms() {
   try { const r = await bg()?.requestPhonePerms(); return !!(r && r.granted) } catch { return false }
