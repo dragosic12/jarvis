@@ -19,7 +19,8 @@ _SYS = ("Eres Jarvis, un asistente de voz personal. Responde en espanol, breve (
 
 _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando lo que falte):
 - enciende la linterna / apaga la linterna
-- sube el volumen / baja el volumen / silencio / modo vibracion
+- sube el volumen / baja el volumen / silencio / modo vibracion / pon el volumen al 30
+- sube el brillo / baja el brillo / pon el brillo al 50 / brillo al maximo
 - bloquea el movil
 - busca el movil
 - que hora es / que tiempo hace / bateria

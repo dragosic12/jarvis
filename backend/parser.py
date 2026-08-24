@@ -448,6 +448,39 @@ def _match_volume(text, raw, context):
     }
 
 
+def _match_brightness(text, raw, context):
+    """Brillo de pantalla: sube/baja, maximo/minimo, 'al 5', 'al 50 por ciento'."""
+    if not re.search(r"brillo|brightness|pantalla mas (clar|oscur|brillan)|ilumina la pantalla",
+                     text):
+        return None
+    act = None
+    if re.search(r"maxim|a tope|mas brillo al max", text):
+        act = "max"
+    elif re.search(r"minim|mas oscur|mas baj", text):
+        act = "min"
+    elif re.search(r"\b(sube|subir|aumenta|mas brillo|mas claro|mas alto)\b", text):
+        act = "up"
+    elif re.search(r"\b(baja|bajar|reduce|menos brillo|mas oscuro|mas bajo)\b", text):
+        act = "down"
+    else:
+        m = re.search(r"(?:al?|a|a la)\s+(\d{1,3})\s+de\s+(\d{1,3})", text)
+        if m:
+            num, den = int(m.group(1)), int(m.group(2))
+            act = f"set:{min(100, round(num / den * 100)) if den else 0}"
+        else:
+            m = re.search(r"(?:al?|a|a la)\s+(mitad|\d{1,3})", text)
+            if m:
+                if m.group(1) == "mitad":
+                    v = 50
+                else:
+                    n = int(m.group(1))
+                    v = min(n, 100) if (re.search(r"por ?ciento|%", text) or n > 10) else min(n * 10, 100)
+                act = f"set:{v}"
+    if not act:
+        return None
+    return _dev_intent(raw, context, f"jarvis-brightness://{act}", f"Brillo {act}")
+
+
 def _match_ringer(text, raw, context):
     """'pon el movil en vibracion / en silencio / con sonido'."""
     mode = None
@@ -1137,6 +1170,7 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
                     _match_weather, _match_help, _match_torch, _match_battery, _match_find_phone,
                     _match_car, _match_wa_audio, _match_lists,
                     _match_call_control, _match_call, _match_lock, _match_ringer, _match_volume,
+                    _match_brightness,
                     _match_reminder, _match_time, _match_alarm_in, _match_timer, _match_alarm):
         hit = matcher(text, raw, context)
         if hit:

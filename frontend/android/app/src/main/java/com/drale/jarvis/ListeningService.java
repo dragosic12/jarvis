@@ -520,6 +520,10 @@ public class ListeningService extends Service {
             findPhone();
             return;
         }
+        if (url.startsWith("jarvis-brightness://")) {
+            setBrightness(url.substring("jarvis-brightness://".length()));
+            return;
+        }
         if (url.startsWith("jarvis-wa-audio://")) {
             pendingAudioJid = url.substring("jarvis-wa-audio://".length()).replaceAll("[^0-9]", "");
             speak("Vale, dime el audio despues del pitido.");
@@ -637,6 +641,37 @@ public class ListeningService extends Service {
                 int pct = Integer.parseInt(act.substring(4));
                 am.setStreamVolume(stream, Math.round(max * pct / 100f), flag);
             }
+        } catch (Exception ignored) {}
+    }
+
+    /** Brillo de pantalla del sistema (0-255). Requiere permiso WRITE_SETTINGS. */
+    private void setBrightness(String act) {
+        try {
+            if (!android.provider.Settings.System.canWrite(this)) {
+                speak("Necesito permiso para cambiar el brillo. Te abro los ajustes, activalo.");
+                Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return;
+            }
+            android.content.ContentResolver cr = getContentResolver();
+            android.provider.Settings.System.putInt(cr,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+            int cur = android.provider.Settings.System.getInt(cr,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS, 128);
+            int val;
+            if ("max".equals(act)) val = 255;
+            else if ("min".equals(act)) val = 12;
+            else if ("up".equals(act)) val = Math.min(255, cur + 45);
+            else if ("down".equals(act)) val = Math.max(5, cur - 45);
+            else if (act.startsWith("set:")) {
+                int pct = Integer.parseInt(act.substring(4));
+                val = Math.max(5, Math.round(255 * pct / 100f));
+            } else return;
+            android.provider.Settings.System.putInt(cr,
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS, val);
         } catch (Exception ignored) {}
     }
 
