@@ -1,7 +1,19 @@
 import sqlite3
 import os
+import json
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "jarvis.db")
+
+
+def _infra(key, default):
+    try:
+        return json.load(open(os.path.join(os.path.dirname(__file__), ".infra.json"))).get(key, default)
+    except Exception:
+        return default
+
+
+# IP/host del servidor casero para los accesos directos "abrir X". Real en .infra.json.
+_H = _infra("server_ip", "192.0.2.10")
 
 
 def get_db():
@@ -78,15 +90,15 @@ def seed_commands(c):
         ("abrir", "terminal", "shell", "wt", "Abre Windows Terminal", "windows"),
         ("abrir", "explorador", "shell", "explorer", "Abre Explorador de archivos", "windows"),
         ("abrir", "swapcar", "url", "https://www.swapcar.app", "Abre SwapCar", "all"),
-        ("abrir", "nexus", "url", "http://192.0.2.10/nexus/", "Abre Nexus Control", "all"),
-        ("abrir", "immich", "url", "http://192.0.2.10:2283", "Abre Immich fotos", "all"),
-        ("abrir", "nextcloud", "url", "http://192.0.2.10:8090", "Abre Nextcloud", "all"),
-        ("abrir", "jellyfin", "url", "http://192.0.2.10:8096", "Abre Jellyfin", "all"),
-        ("abrir", "qbittorrent", "url", "http://192.0.2.10:8085", "Abre qBittorrent", "all"),
-        ("abrir", "finanzas", "url", "http://192.0.2.10/finanzas/", "Abre app Finanzas", "all"),
-        ("abrir", "hive", "url", "http://192.0.2.10/hive/", "Abre Hive", "all"),
-        ("abrir", "webcraft", "url", "http://192.0.2.10/webcraft/", "Abre WebCraft", "all"),
-        ("abrir", "la gatta", "url", "http://192.0.2.10/lagatta/", "Abre La Gatta", "all"),
+        ("abrir", "nexus", "url", f"http://{_H}/nexus/", "Abre Nexus Control", "all"),
+        ("abrir", "immich", "url", f"http://{_H}:2283", "Abre Immich fotos", "all"),
+        ("abrir", "nextcloud", "url", f"http://{_H}:8090", "Abre Nextcloud", "all"),
+        ("abrir", "jellyfin", "url", f"http://{_H}:8096", "Abre Jellyfin", "all"),
+        ("abrir", "qbittorrent", "url", f"http://{_H}:8085", "Abre qBittorrent", "all"),
+        ("abrir", "finanzas", "url", f"http://{_H}/finanzas/", "Abre app Finanzas", "all"),
+        ("abrir", "hive", "url", f"http://{_H}/hive/", "Abre Hive", "all"),
+        ("abrir", "webcraft", "url", f"http://{_H}/webcraft/", "Abre WebCraft", "all"),
+        ("abrir", "la gatta", "url", f"http://{_H}/lagatta/", "Abre La Gatta", "all"),
 
         # --- Categoria: buscar ---
         ("buscar", "google", "search", "https://www.google.com/search?q={query}", "Busca en Google", "all"),

@@ -2,10 +2,25 @@
 Ejecutor de acciones: recibe la intencion parseada y ejecuta la accion correspondiente.
 """
 
+import os
+import json
 import subprocess
 import webbrowser
 import urllib.parse
 from database import get_db
+
+
+def _infra(key, default):
+    """Lee infraestructura local (host del PC, etc.) de .infra.json (no versionado)."""
+    try:
+        p = os.path.join(os.path.dirname(__file__), ".infra.json")
+        return json.load(open(p)).get(key, default)
+    except Exception:
+        return default
+
+
+# Host SSH del PC de sobremesa (usuario@ip). El valor real vive en .infra.json.
+_PC_HOST = _infra("pc_host", "user@192.168.1.50")
 
 
 def execute_action(intent: dict, target_platform: str = "linux") -> dict:
@@ -404,7 +419,7 @@ def _pc_run(ps_cmd: str, timeout: int = 15):
     enc = base64.b64encode(ps_cmd.encode("utf-16-le")).decode()
     return subprocess.run(
         ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-         "user@192.168.1.50", "powershell", "-NoProfile", "-EncodedCommand", enc],
+         _PC_HOST, "powershell", "-NoProfile", "-EncodedCommand", enc],
         capture_output=True, text=True, errors="replace", timeout=timeout,
     )
 
@@ -509,7 +524,7 @@ def _handle_pc_shot() -> dict:
             time.sleep(1)
             r = subprocess.run(
                 ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-                 "user@192.168.1.50:jarvis_shot.png", dest],
+                 f"{_PC_HOST}:jarvis_shot.png", dest],
                 capture_output=True, text=True, errors="replace", timeout=15,
             )
             if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 5000:
@@ -549,7 +564,7 @@ def _handle_pc_clip_get() -> dict:
             time.sleep(1)
             r = subprocess.run(
                 ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-                 "user@192.168.1.50:jarvis_clip.txt", "/tmp/jarvis_clip.txt"],
+                 f"{_PC_HOST}:jarvis_clip.txt", "/tmp/jarvis_clip.txt"],
                 capture_output=True, text=True, errors="replace", timeout=15)
             if r.returncode == 0 and os.path.exists("/tmp/jarvis_clip.txt"):
                 txt = open("/tmp/jarvis_clip.txt", encoding="utf-8-sig", errors="replace").read().strip()
@@ -573,7 +588,7 @@ def _handle_pc_read_screen() -> dict:
             time.sleep(1)
             r = subprocess.run(
                 ["scp", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
-                 "user@192.168.1.50:jarvis_shot.png", "/tmp/jarvis_read.png"],
+                 f"{_PC_HOST}:jarvis_shot.png", "/tmp/jarvis_read.png"],
                 capture_output=True, text=True, errors="replace", timeout=15)
             if (r.returncode == 0 and os.path.exists("/tmp/jarvis_read.png")
                     and os.path.getsize("/tmp/jarvis_read.png") > 5000):

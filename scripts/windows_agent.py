@@ -8,7 +8,7 @@ Instalacion en Windows:
   pip install requests websockets
 
 Uso:
-  python windows_agent.py --server http://192.168.1.50:4040
+  python windows_agent.py --server http://YOUR-SERVER:4040
 
 El agente consulta periodicamente el servidor buscando comandos pendientes
 para la plataforma "windows", o se conecta via WebSocket para recibir
@@ -80,7 +80,7 @@ def poll_mode(server_url, interval=2):
 
 def main():
     parser = argparse.ArgumentParser(description="Jarvis Windows Agent")
-    parser.add_argument("--server", default="http://192.168.1.50:4040", help="URL del servidor Jarvis")
+    parser.add_argument("--server", default="http://YOUR-SERVER:4040", help="URL del servidor Jarvis")
     parser.add_argument("--interval", type=int, default=2, help="Intervalo polling (segundos)")
     args = parser.parse_args()
 
