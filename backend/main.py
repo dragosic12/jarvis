@@ -198,6 +198,26 @@ async def read_screen(body: dict, _t=Depends(verify_token)):
     return {"summary": summary}
 
 
+@app.post("/api/vision")
+async def vision(body: dict, _t=Depends(verify_token)):
+    """Analiza una imagen (base64) con Gemini vision y responde la pregunta."""
+    import base64
+    from gemini import read_image
+    data = (body or {}).get("image", "")
+    q = (body or {}).get("question") or ("Analiza la imagen. Si es un producto, di que es, "
+         "marca y modelo si se ven, y para que sirve. Se breve y directo.")
+    if "base64," in data:
+        data = data.split("base64,", 1)[1]
+    try:
+        raw = base64.b64decode(data)
+    except Exception:
+        raise HTTPException(400, "imagen invalida")
+    if not raw:
+        raise HTTPException(400, "imagen vacia")
+    answer = read_image(raw, q)
+    return {"answer": answer or "No he podido analizar la imagen."}
+
+
 @app.post("/api/system/confirm")
 async def confirm_system_action(body: dict, _t=Depends(verify_token)):
     """Confirmar y ejecutar accion de sistema (apagar/reiniciar/suspender)."""

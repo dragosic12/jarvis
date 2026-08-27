@@ -9,11 +9,13 @@ import LogPanel from './components/LogPanel'
 import GestureMode from './components/GestureMode'
 import Settings from './components/Settings'
 import Cheatsheet from './components/Cheatsheet'
+import VisionLens from './components/VisionLens'
 import { getAppVersion, stopSpeaking, exitConversation } from './utils/native'
 import { API_BASE } from './config'
 
 const TABS = [
   { id: 'voice', label: 'Voz' },
+  { id: 'lens', label: 'Lens' },
   { id: 'commands', label: 'Comandos' },
   { id: 'logs', label: 'Historial' },
   { id: 'guia', label: 'Guía' },
@@ -175,6 +177,7 @@ export default function App() {
               onToggleListen={() => setContinuous((c) => !c)}
             />
           )}
+          {tab === 'lens' && <VisionLens authFetch={authFetch} />}
           {tab === 'ajustes' && <Settings authFetch={authFetch} />}
           {tab === 'guia' && <Cheatsheet />}
         </main>

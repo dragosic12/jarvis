@@ -17,6 +17,22 @@ _SYS = ("Eres Jarvis, un asistente de voz personal. Responde en espanol, breve (
         "alta. Mantienes el hilo de la conversacion: si te piden ampliar da mas detalle "
         "pero sigue conciso; si preguntan de donde sale la info, di el tipo de fuente.")
 
+def _lang_hint():
+    """Instruccion de idioma segun voicecfg (vacia si espanol). Se anade a los
+    prompts de RESPUESTA al usuario, no al interprete de comandos (que va en espanol)."""
+    try:
+        import voicecfg
+        lang = voicecfg.load()["lang"]
+    except Exception:
+        return ""
+    name = {"en": "ingles", "fr": "frances", "it": "italiano",
+            "de": "aleman", "pt": "portugues"}.get(lang, "")
+    if not name:
+        return ""
+    return (" IMPORTANTE: aunque el usuario te hable en otro idioma, responde SIEMPRE en "
+            + name + ".")
+
+
 _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando lo que falte):
 - enciende la linterna / apaga la linterna
 - sube el volumen / baja el volumen / silencio / modo vibracion / pon el volumen al 30
@@ -139,7 +155,7 @@ def ask_gemini(question: str, timeout: int = 18, remember: bool = True) -> str:
     hist = _load_hist() if remember else []
     contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
     contents.append({"role": "user", "parts": [{"text": question}]})
-    txt = _gemini_call(contents, _SYS, timeout=timeout)
+    txt = _gemini_call(contents, _SYS + _lang_hint(), timeout=timeout)
     if txt and remember:
         hist.append({"role": "user", "text": question})
         hist.append({"role": "model", "text": txt})
@@ -148,15 +164,17 @@ def ask_gemini(question: str, timeout: int = 18, remember: bool = True) -> str:
 
 
 def read_image(image_bytes: bytes, prompt: str, timeout: int = 25) -> str:
-    """Envia una imagen a Gemini (vision) y devuelve su lectura/resumen, o ''."""
+    """Envia una imagen a Gemini (vision) y devuelve su lectura/analisis, o ''."""
     if not image_bytes:
         return ""
+    mime = "image/jpeg" if image_bytes[:3] == b"\xff\xd8\xff" else \
+        ("image/webp" if image_bytes[:4] == b"RIFF" else "image/png")
     b64 = base64.b64encode(image_bytes).decode()
     contents = [{"role": "user", "parts": [
         {"text": prompt},
-        {"inline_data": {"mime_type": "image/png", "data": b64}},
+        {"inline_data": {"mime_type": mime, "data": b64}},
     ]}]
-    return _gemini_call(contents, _SYS, timeout=timeout, max_tokens=400)
+    return _gemini_call(contents, _SYS + _lang_hint(), timeout=timeout, max_tokens=500)
 
 
 def smart_reply(utterance: str, contacts=None):
@@ -166,7 +184,7 @@ def smart_reply(utterance: str, contacts=None):
     if not utterance:
         return ("", "")
     contacts_line = ("Contactos: " + ", ".join(contacts) + ".\n") if contacts else ""
-    sys = (_SYS + "\n\nIMPORTANTE: si el mensaje del usuario es una ORDEN para el movil o el "
+    sys = (_SYS + _lang_hint() + "\n\nIMPORTANTE: si el mensaje del usuario es una ORDEN para el movil o el "
            "PC (no una pregunta ni charla), responde SOLO con 'CMD: ' seguido de la orden "
            "canonica equivalente de esta lista (rellenando contacto/app/valor) y NADA mas:\n"
            + _CMDS_HELP + "\n" + contacts_line +
@@ -201,7 +219,7 @@ def summarize_screen(page_text: str) -> str:
     hist = _load_hist()
     contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
     contents.append({"role": "user", "parts": [{"text": ctx + "\n\nResumeme brevemente esta pagina."}]})
-    txt = _gemini_call(contents, _SYS_SCREEN, max_tokens=350)
+    txt = _gemini_call(contents, _SYS_SCREEN + _lang_hint(), max_tokens=350)
     if not txt:
         return "No he podido resumir la pagina ahora mismo."
     hist.append({"role": "user", "text": ctx})
