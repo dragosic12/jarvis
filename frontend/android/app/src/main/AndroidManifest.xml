@@ -91,6 +91,11 @@
         </service>
     </application>
 
+    <!-- Android 11+: hace falta declarar Termux para poder mandarle comandos -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />

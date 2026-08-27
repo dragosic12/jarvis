@@ -42,6 +42,13 @@ def _parse_spoken_time(s):
     m = re.match(r"^(\d{1,2})[:h\. ](\d{2})", s)
     if m:
         return int(m.group(1)) % 24, int(m.group(2))
+    # "18:30" -> normalizacion quita el ':' -> "1830"; interpretar HHMM/HMM pegado
+    m = re.match(r"^(\d{3,4})$", s)
+    if m:
+        v = m.group(1)
+        hh, mm = int(v[:-2]), int(v[-2:])
+        if hh < 24 and mm < 60:
+            return hh, mm
     parts = s.split()
     if not parts:
         return None, None
@@ -347,6 +354,138 @@ def _match_pc_shot(text, raw, context):
     return None
 
 
+def _match_football(text, raw, context):
+    """Partidos de futbol: 'quien juega hoy', 'juega el madrid hoy',
+    'a que hora juega el barsa', 'hay partido hoy', 'cuando juega el atleti'."""
+    juega = re.search(r"\b(juega|juegan|jugaba|jugaban|jueguen|jugo|jugara)\b", text)
+    partido = re.search(r"\bpartido[s]?\b", text)
+    equipos = re.search(r"\b(madrid|barcelona|barca|barsa|barza|atletico|atleti|sevilla|"
+                        r"betis|valencia|villarreal|athletic|bilbao|real sociedad|celta|"
+                        r"getafe|girona|osasuna|rayo|espanyol|mallorca|alaves|psg|city|"
+                        r"united|liverpool|chelsea|arsenal|bayern|juventus|milan|inter)\b", text)
+    triggers = re.search(r"\b(hoy|manana|esta noche|champions|la liga|premier|futbol)\b", text)
+    hay = re.search(r"\bhay\b.{0,15}\b(partido|futbol|champions|liga)\b", text)
+    hora = re.search(r"(a que hora|cuando|contra quien) (juega|es el partido)|proximo partido", text)
+    resultado = re.search(r"como quedo|que resultado|como (fue|quedaron|han quedado)|marcador", text)
+    tabla = re.search(r"clasificacion|en que puesto|que puesto|posicion va|\btabla\b|"
+                      r"lider de la liga|como va la liga|quien va primero", text)
+    if (hora or hay or tabla or (resultado and equipos)
+            or (juega and (triggers or equipos)) or (partido and (triggers or equipos))):
+        return {"matched": True, "raw_text": raw, "category": "futbol", "trigger": "futbol",
+                "action_type": "football", "action_value": "", "command_id": None,
+                "description": "Futbol", "platform": "all", "query": text,
+                "context": context, "silent": False}
+    return None
+
+
+def _match_music(text, raw, context):
+    """Musica del movil (Spotify u otra app): play/pausa/siguiente/anterior o buscar tema."""
+    from urllib.parse import quote_plus
+    if re.search(r"\bordenador\b|\bpc\b|sobremesa", text):
+        return None  # eso es control del PC (lo lleva _match_pc_control)
+    m = re.search(r"(?:pon|ponme|reproduce|reproducir|escuchar)\s+(.+?)\s+en spotify", text)
+    if not m:
+        m = re.search(r"(?:pon|ponme|reproduce)\s+la cancion\s+(.+)$", text)
+    if m and m.group(1).strip():
+        return _dev_intent(raw, context, "jarvis-music://spotify?q=" + quote_plus(m.group(1).strip()), "Spotify")
+    if re.search(r"(siguiente|proxima|pasa|salta|cambia).{0,12}(cancion|tema|pista|musica)|"
+                 r"siguiente cancion|pon la siguiente|pasa de cancion", text):
+        return _dev_intent(raw, context, "jarvis-music://next", "Siguiente")
+    if re.search(r"(cancion|tema) anterior|pon la anterior|vuelve a la anterior|"
+                 r"cancion de antes|pon la de antes", text):
+        return _dev_intent(raw, context, "jarvis-music://prev", "Anterior")
+    if re.search(r"pausa la musica|para la musica|deten la musica|quita la musica|"
+                 r"para de sonar|pausa la cancion|pausa spotify", text):
+        return _dev_intent(raw, context, "jarvis-music://pause", "Pausa")
+    if re.search(r"pon (algo de )?musica|reproduce (algo de )?musica|ponme musica|"
+                 r"quiero (escuchar )?musica|dale a la musica|reanuda la musica|sigue la musica|"
+                 r"reanuda spotify|dale al play", text):
+        return _dev_intent(raw, context, "jarvis-music://play", "Musica")
+    return None
+
+
+def _match_readscreen(text, raw, context):
+    """Resumir la pagina/pantalla del MOVIL (no el PC) y dejar el contenido en el hilo."""
+    if re.search(r"\bordenador\b|\bpc\b|sobremesa", text):
+        return None
+    if re.search(r"resume(me)? (esta |la |lo )?(pagina|pantalla|esto|web|articulo|noticia)|"
+                 r"resume lo que (estoy|hay)|de que va (esta|esto)|de que trata (esta|esto)|"
+                 r"que pone (aqui|en esta pagina|en la pagina)|que dice (esta |la )?(pagina|pantalla)|"
+                 r"lee(me)? (esta |la )(pagina|pantalla)|resumeme esto|hazme un resumen de (esta|lo)", text):
+        return _dev_intent(raw, context, "jarvis-readscreen://go", "Resumir pantalla del movil")
+    return None
+
+
+def _match_server(text, raw, context):
+    """Estado del servidor draleserver."""
+    if re.search(r"(como (esta|va|anda)|que tal|estado|salud|como esta) (el |del )?servidor|"
+                 r"servidor (como|que tal|esta bien|va bien)|carga del servidor|"
+                 r"cuanta (ram|memoria).{0,20}servidor|espacio (en disco|libre).{0,15}servidor|"
+                 r"uptime del servidor|estado del sistema", text):
+        return {"matched": True, "raw_text": raw, "category": "servidor", "trigger": "servidor",
+                "action_type": "server_status", "action_value": "", "command_id": None,
+                "description": "Estado servidor", "platform": "all", "query": text,
+                "context": context, "silent": False}
+    return None
+
+
+def _match_uptime(text, raw, context):
+    """Comprobar si una web/servicio esta arriba."""
+    verbo = re.search(r"\b(arriba|funcionando|responde|caido|caida|online|operativo|se ha caido)\b", text)
+    known = re.search(r"(lagatta|la gatta|jarvis|immich|fotos|finanzas|swapcar|petunia)", text)
+    # el dominio con punto solo sobrevive en el texto original (normalize quita puntos)
+    dom = re.search(r"[a-z0-9\-]+\.(es|com|app|net|org|io|dev)\b", (raw or "").lower())
+    if verbo and (known or dom):
+        return {"matched": True, "raw_text": raw, "category": "uptime", "trigger": "uptime",
+                "action_type": "uptime_check", "action_value": "", "command_id": None,
+                "description": "Uptime", "platform": "all", "query": (raw or text).lower(),
+                "context": context, "silent": False}
+    return None
+
+
+def _match_devtools(text, raw, context):
+    """Utilidades de dev: contrasena, uuid, ip publica, timestamp, base64, hash."""
+    if re.search(r"genera(me)? (una |un )?(contrasena|contraseña|clave|password|uuid)|"
+                 r"dame (una )?(contrasena|contraseña|clave|password)|\buuid\b|"
+                 r"(cual es )?mi ip|ip publica|direccion ip|"
+                 r"\btimestamp\b|marca de tiempo|hora unix|"
+                 r"base ?64|\b(md5|sha256|sha1)\b|hash de", text):
+        return {"matched": True, "raw_text": raw, "category": "devtools", "trigger": "devtools",
+                "action_type": "devtools", "action_value": "", "command_id": None,
+                "description": "Dev tools", "platform": "all", "query": text,
+                "context": context, "silent": False}
+    return None
+
+
+def _match_finance(text, raw, context):
+    """Cripto, acciones y conversion de moneda."""
+    cripto = re.search(r"\b(bitcoin|btc|ethereum|ether|eth|cripto|criptomoneda|dogecoin|doge|"
+                       r"cardano|solana|litecoin|ripple|xrp|binance coin|bnb|polkadot|monero|shiba)\b", text)
+    accion = re.search(r"\b(accion|acciones|cotiza|cotizacion|bolsa|nasdaq)\b", text)
+    cur_words = re.findall(r"\b(dolar|dolares|euro|euros|libra|libras|yen|yenes|franco|francos)\b", text)
+    dos_monedas = re.search(r"\d", text) and len({w.rstrip("es") for w in cur_words}) >= 2
+    moneda = (dos_monedas
+              or re.search(r"cuanto[s]?.{0,40}\b(dolar|dolares|euro|euros|libra|libras|yen|yenes)\b", text)
+              or re.search(r"a cuanto esta el (dolar|euro|libra)", text)
+              or re.search(r"cambio (del |de )?(euro|dolar|libra)", text))
+    if cripto or accion or moneda:
+        return {"matched": True, "raw_text": raw, "category": "finanzas", "trigger": "finanzas",
+                "action_type": "finance", "action_value": "", "command_id": None,
+                "description": "Finanzas", "platform": "all", "query": text,
+                "context": context, "silent": False}
+    return None
+
+
+def _match_news(text, raw, context):
+    """Titulares de noticias."""
+    if re.search(r"\b(noticias|titulares)\b|dame las noticias|que ha pasado (hoy|en el mundo)|ultima hora", text):
+        return {"matched": True, "raw_text": raw, "category": "noticias", "trigger": "noticias",
+                "action_type": "news", "action_value": "", "command_id": None,
+                "description": "Noticias", "platform": "all", "query": text,
+                "context": context, "silent": False}
+    return None
+
+
 def _match_weather(text, raw, context):
     """El tiempo / clima."""
     if re.search(r"(que tiempo (hace|va a hacer|hara|tenemos)|el tiempo( de (hoy|manana))?$|"
@@ -599,7 +738,16 @@ def _match_calc(text, raw, context):
 
 
 def _match_camera(text, raw, context):
-    """Foto (silenciosa via Termux), selfie, abrir camara o grabar video."""
+    """Foto silenciosa (Termux), foto con camara real (+disparo auto), selfie, video."""
+    # CAMARA REAL + disparo automatico (max calidad, la sube la app de Immich):
+    # "haz una foto con la camara", "abre la camara y hazme una foto", "foto buena"
+    real_cam = ("con la camara" in text or "con mi camara" in text
+                or re.search(r"abre(me)? la camara y (haz|hazme|saca|sacame|toma|tomame|echa|echame)", text)
+                or re.search(r"\bfoto (buena|de calidad|en condiciones)\b", text))
+    if real_cam:
+        if re.search(r"selfie|frontal|de delante|de frente", text):
+            return _dev_intent(raw, context, "jarvis-camera://selfie", "Foto camara real")
+        return _dev_intent(raw, context, "jarvis-camera://photo", "Foto camara real")
     # Selfie -> foto silenciosa camara frontal (Termux)
     if re.search(r"\bselfie\b|camara frontal|autofoto|foto frontal|hazme un selfie", text):
         return _dev_intent(raw, context, "jarvis-termux://photo:1", "Selfie")
@@ -1318,6 +1466,14 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
             context = ctx
             break
 
+    # PRIORIDAD: un "recuerdame ... (en/a las) ..." es SIEMPRE un recordatorio,
+    # aunque su texto contenga futbol/musica/etc ("recuerdame que juega el madrid
+    # a las 9"), que si no seria capturado por _match_football y compania.
+    if re.match(r"^recuerda(?:\s*(?:me|te))?\b", text):
+        rem = _match_reminder(text, raw, context)
+        if rem:
+            return rem
+
     # 2a. Ayuda, dispositivo, sonido, bloqueo, volumen, hora, alarmas, temporizadores
     # _match_routine va el PRIMERO: siempre exige la palabra literal "rutina" en
     # el texto, asi que nunca puede robarle un comando a otro matcher; en
@@ -1327,7 +1483,9 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
     # dias", _match_weather, etc.) que no exigen esa palabra.
     for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_clip, _match_phoneclip, _match_pc_read,
                     _match_pc_control, _match_pc_open,
-                    _match_claude, _match_conversation, _match_followup, _match_translate,
+                    _match_claude, _match_football, _match_finance, _match_news,
+                    _match_server, _match_uptime, _match_devtools, _match_music, _match_readscreen,
+                    _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_calc, _match_torch, _match_battery, _match_camera, _match_find_phone,
                     _match_connectivity, _match_read_notifs, _match_location, _match_vibrate,
@@ -1431,12 +1589,12 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
         # nunca apagar/suspender/sistema/servidor por una palabra suelta mal oida
         db = get_db()
         for word in words[1:]:
-            if len(word) <= 2:
+            if len(word) < 4:            # solo palabras significativas (evita 'fin'->jellyfin)
                 continue
             fuzzy = db.execute(
-                "SELECT * FROM commands WHERE trigger_phrase LIKE ? AND enabled = 1"
-                " AND category IN ('abrir', 'buscar') LIMIT 1",
-                (f"%{word}%",)
+                "SELECT * FROM commands WHERE (trigger_phrase = ? OR trigger_phrase LIKE ?)"
+                " AND enabled = 1 AND category IN ('abrir', 'buscar') LIMIT 1",
+                (word, f"{word}%")       # exacta o que EMPIECE por la palabra (no substring)
             ).fetchone()
             if fuzzy:
                 best_match = fuzzy

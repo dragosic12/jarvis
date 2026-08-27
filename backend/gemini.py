@@ -30,6 +30,12 @@ _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando l
 - donde estoy (ubicacion) / vibra el movil / copia al movil TEXTO
 - linterna sos / haz parpadear la linterna
 - que hora es / que tiempo hace / bateria
+- quien juega hoy / cuando juega el EQUIPO / a que hora juega el EQUIPO (futbol, partidos)
+- como quedo el EQUIPO / que resultado hizo el EQUIPO (resultado de futbol)
+- a cuanto esta el bitcoin / accion de EMPRESA / cuantos dolares son N euros (cripto, bolsa, moneda)
+- dame las noticias / titulares / noticias de deportes o tecnologia
+- pon musica / pausa la musica / siguiente cancion / cancion anterior / pon CANCION en spotify
+- resume esta pagina / resume lo que estoy viendo / de que va esta pagina (resumir pantalla del movil)
 - pon una alarma a las HORA / temporizador de N minutos
 - recuerdame TEXTO en N minutos
 - dile a CONTACTO que MENSAJE
@@ -178,6 +184,30 @@ def smart_reply(utterance: str, contacts=None):
     hist.append({"role": "model", "text": txt})
     _save_hist(hist)
     return ("say", txt)
+
+
+_SYS_SCREEN = (_SYS + " Te paso el TEXTO que el usuario esta viendo ahora en la pantalla de su "
+               "movil. Resumelo en 2 a 4 frases, claro y para escuchar en voz alta. Guarda el "
+               "contenido: si despues te preguntan detalles concretos, respondelos usando ese texto.")
+
+
+def summarize_screen(page_text: str) -> str:
+    """Resume el texto que el usuario ve en pantalla y lo deja en el hilo para
+    poder preguntar detalles a continuacion (dentro del TTL de la conversacion)."""
+    if not page_text or not page_text.strip():
+        return "No he podido leer la pantalla."
+    page_text = page_text[:6000]
+    ctx = "[Esto es lo que estoy viendo ahora en la pantalla del movil]:\n" + page_text
+    hist = _load_hist()
+    contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
+    contents.append({"role": "user", "parts": [{"text": ctx + "\n\nResumeme brevemente esta pagina."}]})
+    txt = _gemini_call(contents, _SYS_SCREEN, max_tokens=350)
+    if not txt:
+        return "No he podido resumir la pagina ahora mismo."
+    hist.append({"role": "user", "text": ctx})
+    hist.append({"role": "model", "text": txt})
+    _save_hist(hist)
+    return txt
 
 
 def interpret_command(transcript: str, contacts=None) -> str:

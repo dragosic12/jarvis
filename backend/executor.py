@@ -53,6 +53,42 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
             return {"success": True, "message": txt,
                     "data": {"type": "spoken_response", "text": txt}}
 
+        elif action_type == "football":
+            from football import football_speech
+            txt = football_speech(intent.get("query") or intent.get("raw_text") or "")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "finance":
+            from finance import finance_speech
+            txt = finance_speech(intent.get("query") or intent.get("raw_text") or "")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "news":
+            from news import news_speech
+            txt = news_speech(intent.get("query") or intent.get("raw_text") or "")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "server_status":
+            from sysadmin import server_status_speech
+            txt = server_status_speech()
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "uptime_check":
+            from sysadmin import uptime_check_speech
+            txt = uptime_check_speech(intent.get("query") or "")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
+        elif action_type == "devtools":
+            from sysadmin import devtools_speech
+            txt = devtools_speech(intent.get("raw_text") or intent.get("query") or "")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
         elif action_type == "briefing":
             txt = _handle_briefing()
             return {"success": True, "message": txt,
@@ -584,6 +620,25 @@ def _handle_briefing() -> str:
         d = fetch_usage()
         w = max(0, min(100, round(100 - (d.get("seven_day", {}).get("utilization") or 0))))
         parts.append(f"Y te queda el {w} por ciento de Claude esta semana.")
+    except Exception:
+        pass
+    try:
+        from football import _today_matches
+        fb = _today_matches()
+        if fb.startswith("Hoy juegan"):
+            parts.append(fb)
+    except Exception:
+        pass
+    try:
+        from news import brief as _nbrief
+        nb = _nbrief(2)
+        if nb:
+            parts.append(nb)
+    except Exception:
+        pass
+    try:
+        from sysadmin import server_brief
+        parts.append(server_brief())
     except Exception:
         pass
     return " ".join(parts)

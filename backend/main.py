@@ -190,6 +190,14 @@ async def process_text_command(body: dict, _t=Depends(verify_token)):
     return {"intent": intent, "result": result}
 
 
+@app.post("/api/read_screen")
+async def read_screen(body: dict, _t=Depends(verify_token)):
+    """Resume el texto de la pantalla del movil (accesibilidad) y lo deja en el hilo."""
+    from gemini import summarize_screen
+    summary = summarize_screen((body or {}).get("text", ""))
+    return {"summary": summary}
+
+
 @app.post("/api/system/confirm")
 async def confirm_system_action(body: dict, _t=Depends(verify_token)):
     """Confirmar y ejecutar accion de sistema (apagar/reiniciar/suspender)."""

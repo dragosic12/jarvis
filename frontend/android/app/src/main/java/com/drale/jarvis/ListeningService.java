@@ -428,6 +428,36 @@ public class ListeningService extends Service {
         return new JSONObject(body).optString("text", "");
     }
 
+    /** Lee el texto de la pantalla del movil (accesibilidad), lo manda al backend
+     *  para resumirlo con IA y lo dice. El backend guarda el contenido para preguntas. */
+    private void readAndSummarizeScreen() {
+        speak("Un momento, leo la pagina.");
+        new Thread(() -> {
+            try {
+                String page = JarvisA11yService.dumpScreenText();
+                if (page == null || page.trim().length() < 20) {
+                    speak("No consigo leer esta pantalla. Comprueba que la accesibilidad de Jarvis esta activada.");
+                    return;
+                }
+                HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/read_screen").openConnection();
+                c.setConnectTimeout(8000); c.setReadTimeout(30000);
+                c.setDoOutput(true); c.setRequestMethod("POST");
+                c.setRequestProperty("Authorization", "Bearer " + token);
+                c.setRequestProperty("Content-Type", "application/json");
+                JSONObject payload = new JSONObject();
+                payload.put("text", page);
+                OutputStream out = c.getOutputStream();
+                out.write(payload.toString().getBytes("UTF-8"));
+                out.flush(); out.close();
+                JSONObject resp = new JSONObject(readBody(c));
+                String summary = resp.optString("summary", "");
+                speak(summary.isEmpty() ? "No he podido resumir la pagina." : summary);
+            } catch (Exception e) {
+                speak("No he podido resumir la pagina.");
+            }
+        }).start();
+    }
+
     private void runCommandText(String text) {
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/command/text").openConnection();
@@ -547,6 +577,14 @@ public class ListeningService extends Service {
         }
         if (url.startsWith("jarvis-termux://")) {
             handleTermux(url.substring("jarvis-termux://".length()));
+            return;
+        }
+        if (url.startsWith("jarvis-music://")) {
+            handleMusic(url.substring("jarvis-music://".length()));
+            return;
+        }
+        if (url.startsWith("jarvis-readscreen://")) {
+            readAndSummarizeScreen();
             return;
         }
         if (url.startsWith("jarvis-loc://")) {
@@ -788,13 +826,81 @@ public class ListeningService extends Service {
         }
     }
 
+    /** Igual que runTermux pero en PRIMER PLANO (sesion visible). La camara de
+     *  termux-camera-photo NO captura en segundo plano, asi que la foto va por aqui. */
+    private void runTermuxFg(String bin, String[] args) {
+        try {
+            Intent i = new Intent();
+            i.setClassName("com.termux", "com.termux.app.RunCommandService");
+            i.setAction("com.termux.RUN_COMMAND");
+            i.putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/" + bin);
+            if (args != null) i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", args);
+            i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false);
+            i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0");
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Exception e) {
+            speak("No he podido usar Termux. Comprueba que esta instalado y permitido.");
+        }
+    }
+
+    /** Control de musica del movil: play/pause/next/prev (tecla multimedia a la app
+     *  activa, sea Spotify, YouTube Music, etc.) o buscar y reproducir en Spotify. */
+    private void handleMusic(String spec) {
+        try {
+            if (spec.startsWith("spotify?q=")) {
+                String q = java.net.URLDecoder.decode(spec.substring("spotify?q=".length()), "UTF-8");
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW,
+                            android.net.Uri.parse("spotify:search:" + android.net.Uri.encode(q)));
+                    i.setPackage("com.spotify.music");
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    Intent w = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(
+                            "https://open.spotify.com/search/" + android.net.Uri.encode(q)));
+                    w.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(w);
+                }
+                speak("Buscando " + q + " en Spotify.");
+                return;
+            }
+            int key;
+            String say;
+            switch (spec) {
+                case "play":  key = android.view.KeyEvent.KEYCODE_MEDIA_PLAY;     say = "Dale."; break;
+                case "pause": key = android.view.KeyEvent.KEYCODE_MEDIA_PAUSE;    say = "Pausado."; break;
+                case "next":  key = android.view.KeyEvent.KEYCODE_MEDIA_NEXT;     say = "Siguiente."; break;
+                case "prev":  key = android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS; say = "Anterior."; break;
+                default:      key = android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE; say = "Hecho."; break;
+            }
+            sendMediaKey(key);
+            speak(say);
+        } catch (Exception e) {
+            speak("No he podido controlar la musica.");
+        }
+    }
+
+    private void sendMediaKey(int keycode) {
+        try {
+            android.media.AudioManager am = (android.media.AudioManager)
+                    getSystemService(android.content.Context.AUDIO_SERVICE);
+            long t = android.os.SystemClock.uptimeMillis();
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(t, t,
+                    android.view.KeyEvent.ACTION_DOWN, keycode, 0));
+            am.dispatchMediaKeyEvent(new android.view.KeyEvent(t, t,
+                    android.view.KeyEvent.ACTION_UP, keycode, 0));
+        } catch (Exception ignored) {}
+    }
+
     private void handleTermux(String spec) {
         try {
             if (spec.startsWith("photo:")) {
                 String cam = spec.substring("photo:".length());
-                String path = "/sdcard/DCIM/jarvis_" + System.currentTimeMillis() + ".jpg";
-                runTermux("termux-camera-photo", new String[]{"-c", cam, path});
-                speak("Foto hecha.");
+                // Script en el movil: captura (en primer plano) + sube a Immich por API.
+                runTermuxFg("bash", new String[]{
+                    "/data/data/com.termux/files/home/.jarvis/photo.sh", cam});
+                speak("Hecho.");
             } else if (spec.startsWith("sms?")) {
                 String q = spec.substring("sms?".length());
                 String num = "", msg = "";

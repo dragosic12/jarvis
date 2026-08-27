@@ -30,6 +30,8 @@ public class JarvisA11yService extends AccessibilityService {
     private static volatile long armSendUntil = 0;   // ventana para auto-enviar WhatsApp
     private static volatile long armShutterUntil = 0; // ventana para auto-disparo de foto
     private static volatile long armShutterAt = 0;
+    private static volatile boolean shutterDone = false; // ya se pulso el obturador esta vez
+    private android.os.Handler shutterHandler;           // reintentos temporizados del obturador
 
     @Override
     protected void onServiceConnected() {
@@ -62,8 +64,9 @@ public class JarvisA11yService extends AccessibilityService {
         }
 
         // Auto-disparo de foto: si esta armado y hay una camara delante, pulsa el obturador
-        if (armShutterUntil > SystemClock.uptimeMillis() && isCameraPkg(curPkg)) {
-            if (tryClickShutter()) armShutterUntil = 0;
+        if (!shutterDone && armShutterUntil > SystemClock.uptimeMillis() && isCameraPkg(curPkg)) {
+            // por evento solo probamos a detectar el boton (sin toque a ciegas)
+            if (tryClickShutter(false)) { shutterDone = true; armShutterUntil = 0; }
         }
 
         // --- FASE 1: grabador de rutinas ------------------------------------
@@ -128,16 +131,73 @@ public class JarvisA11yService extends AccessibilityService {
 
     public static String currentPackage() { return curPkg; }
 
+    /** Vuelca el TEXTO visible de la ventana activa (para resumir la pagina del movil). */
+    public static String dumpScreenText() {
+        JarvisA11yService s = instance;
+        if (s == null) return "";
+        try {
+            AccessibilityNodeInfo root = s.getRootInActiveWindow();
+            if (root == null) return "";
+            StringBuilder sb = new StringBuilder();
+            s.collectText(root, sb);
+            String t = sb.toString().trim();
+            return t.length() > 6000 ? t.substring(0, 6000) : t;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void collectText(AccessibilityNodeInfo n, StringBuilder sb) {
+        if (n == null || sb.length() > 6500) return;
+        CharSequence tx = n.getText();
+        if (tx != null && tx.length() > 0) {
+            String s = tx.toString().trim();
+            if (s.length() > 0) sb.append(s).append("\n");
+        } else {
+            CharSequence cd = n.getContentDescription();
+            if (cd != null && cd.length() > 1) sb.append(cd.toString().trim()).append("\n");
+        }
+        for (int i = 0; i < n.getChildCount(); i++) collectText(n.getChild(i), sb);
+    }
+
     /** Arma el auto-envio: durante los proximos 9s, al ver WhatsApp delante, pulsa enviar. */
     public static void armSend() {
         armSendUntil = SystemClock.uptimeMillis() + 9000;
     }
 
-    /** Arma el auto-disparo: durante ~6s, al ver una camara delante, pulsa el obturador. */
+    /** Arma el auto-disparo: durante ~9s, al ver la camara delante, pulsa el obturador.
+     *  Reintenta por temporizador (la camara casi no emite eventos y tarda en cargar). */
     public static void armShutter() {
-        armShutterUntil = SystemClock.uptimeMillis() + 6000;
+        armShutterUntil = SystemClock.uptimeMillis() + 11000;
         armShutterAt = SystemClock.uptimeMillis();
+        shutterDone = false;
+        JarvisA11yService s = instance;
+        if (s != null) s.startShutterPolling();
     }
+
+    /** Sondea cada 400ms (primer intento a 1s) buscando el obturador y lo pulsa en cuanto
+     *  aparece; asi aguanta el arranque en frio de la camara (como el auto-envio de WhatsApp).
+     *  El toque a ciegas por coordenada solo se permite en los ultimos ~3s de la ventana. */
+    private void startShutterPolling() {
+        if (shutterHandler == null)
+            shutterHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        shutterHandler.removeCallbacks(shutterPoll);
+        shutterHandler.postDelayed(shutterPoll, 1000);
+    }
+
+    private final Runnable shutterPoll = new Runnable() {
+        @Override public void run() {
+            if (shutterDone) return;
+            long now = SystemClock.uptimeMillis();
+            if (now > armShutterUntil) return;                 // ventana agotada
+            if (isCameraPkg(curPkg)) {
+                if (tryClickShutter(false)) { shutterDone = true; return; }   // boton real
+                if (armShutterUntil - now < 3000               // ultimos ~3s: toque a ciegas
+                        && tryClickShutter(true)) { shutterDone = true; return; }
+            }
+            shutterHandler.postDelayed(this, 400);             // reintenta
+        }
+    };
 
     private static boolean isCameraPkg(String pkg) {
         if (pkg == null) return false;
@@ -145,24 +205,37 @@ public class JarvisA11yService extends AccessibilityService {
         return p.contains("camera") || p.contains("camara") || p.contains("gcam");
     }
 
-    /** Pulsa el obturador: por descripcion, y si no, toca donde suele estar (abajo-centro). */
-    private boolean tryClickShutter() {
+    // IDs de recurso del boton de obturador en las camaras mas comunes (ColorOS/AOSP/MTK).
+    private static final String[] SHUTTER_IDS = {
+            "com.oplus.camera:id/shutter_button",
+            "com.oppo.camera:id/shutter_button",
+            "com.coloros.camera:id/shutter_button",
+            "com.oplus.camera:id/camera_shutter_button",
+            "com.android.camera:id/shutter_button",
+            "com.mediatek.camera:id/shutter_button"};
+
+    /** Pulsa el obturador: 1) por id de recurso, 2) por descripcion, 3) (solo si allowCoord)
+     *  toque a ciegas abajo-centro. Devuelve true si disparo algo. */
+    private boolean tryClickShutter(boolean allowCoord) {
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root != null) {
             try {
-                AccessibilityNodeInfo d = findByDesc(root, new String[]{
+                for (String id : SHUTTER_IDS) {
+                    List<AccessibilityNodeInfo> byId = root.findAccessibilityNodeInfosByViewId(id);
+                    if (byId != null) for (AccessibilityNodeInfo n : byId) if (clickNode(n)) return true;
+                }
+                AccessibilityNodeInfo d = findByDescContains(root, new String[]{
                         "obturador", "hacer foto", "tomar foto", "capturar", "disparar",
-                        "hacer una foto", "sacar foto", "boton del obturador",
-                        "shutter", "take photo", "take picture", "capture"});
+                        "sacar foto", "shutter", "take photo", "take picture", "capture"});
                 if (clickNode(d)) return true;
             } catch (Exception ignored) {}
         }
-        // Fallback por coordenada, tras dar ~1,2s a que cargue la camara
-        if (SystemClock.uptimeMillis() - armShutterAt < 1200) return false;
+        // Toque por coordenada solo en el ultimo intento (si no se encontro el boton)
+        if (!allowCoord) return false;
         try {
             DisplayMetrics dm = getResources().getDisplayMetrics();
             float x = dm.widthPixels / 2f;
-            float y = dm.heightPixels * 0.88f;
+            float y = dm.heightPixels * 0.87f;
             Path path = new Path();
             path.moveTo(x, y);
             GestureDescription gd = new GestureDescription.Builder()
@@ -213,6 +286,22 @@ public class JarvisA11yService extends AccessibilityService {
         }
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo r = findByDesc(node.getChild(i), descs);
+            if (r != null) return r;
+        }
+        return null;
+    }
+
+    /** Como findByDesc pero por coincidencia parcial (contains), para obturadores
+     *  cuya descripcion varia ("Hacer foto", "Boton de captura", etc.). */
+    private AccessibilityNodeInfo findByDescContains(AccessibilityNodeInfo node, String[] descs) {
+        if (node == null) return null;
+        CharSequence cd = node.getContentDescription();
+        if (cd != null) {
+            String s = cd.toString().toLowerCase(Locale.ROOT).trim();
+            for (String d : descs) if (s.contains(d)) return node;
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo r = findByDescContains(node.getChild(i), descs);
             if (r != null) return r;
         }
         return null;

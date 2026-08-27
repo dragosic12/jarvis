@@ -1,4 +1,6 @@
 # ==== SECRETOS (NUNCA subir) ====
+*.env
+.env.*
 backend/.groq_key
 backend/.claude_voice_session
 android-keys/
