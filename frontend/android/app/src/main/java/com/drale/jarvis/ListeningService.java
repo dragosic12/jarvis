@@ -458,6 +458,42 @@ public class ListeningService extends Service {
         }).start();
     }
 
+    /** "Analiza lo que veo": captura la pantalla por accesibilidad y la manda a la
+     *  vision de la IA (tipo Google Lens). Recuerda el analisis para preguntas despues. */
+    private void analyzeScreen() {
+        if (!JarvisA11yService.isReady()) {
+            speak("Activa la accesibilidad de Jarvis para poder analizar la pantalla.");
+            return;
+        }
+        speak("Un momento, miro la pantalla.");
+        JarvisA11yService.captureScreen((b64) -> {
+            if (b64 == null || b64.length() < 100) {
+                speak("No he podido capturar la pantalla.");
+                return;
+            }
+            new Thread(() -> {
+                try {
+                    HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/vision").openConnection();
+                    c.setConnectTimeout(8000); c.setReadTimeout(35000);
+                    c.setDoOutput(true); c.setRequestMethod("POST");
+                    c.setRequestProperty("Authorization", "Bearer " + token);
+                    c.setRequestProperty("Content-Type", "application/json");
+                    JSONObject payload = new JSONObject();
+                    payload.put("image", b64);
+                    payload.put("remember", true);
+                    OutputStream out = c.getOutputStream();
+                    out.write(payload.toString().getBytes("UTF-8"));
+                    out.flush(); out.close();
+                    JSONObject resp = new JSONObject(readBody(c));
+                    String answer = resp.optString("answer", "");
+                    speak(answer.isEmpty() ? "No he podido analizar la pantalla." : answer);
+                } catch (Exception e) {
+                    speak("No he podido analizar la pantalla.");
+                }
+            }).start();
+        });
+    }
+
     private void runCommandText(String text) {
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/command/text").openConnection();
@@ -585,6 +621,10 @@ public class ListeningService extends Service {
         }
         if (url.startsWith("jarvis-readscreen://")) {
             readAndSummarizeScreen();
+            return;
+        }
+        if (url.startsWith("jarvis-seescreen://")) {
+            analyzeScreen();
             return;
         }
         if (url.startsWith("jarvis-loc://")) {

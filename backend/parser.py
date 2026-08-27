@@ -404,6 +404,56 @@ def _match_music(text, raw, context):
     return None
 
 
+def _voice_intent(raw, context, directive):
+    return {"matched": True, "raw_text": raw, "category": "voz", "trigger": "voz",
+            "action_type": "voice_cfg", "action_value": directive, "command_id": None,
+            "description": "Ajuste de voz", "platform": "all", "query": directive,
+            "context": context, "silent": False}
+
+
+def _match_voice(text, raw, context):
+    """Ajustes de voz e idioma por comando (velocidad, genero, tono, robot, idioma)."""
+    if re.search(r"habla (mas )?(rapido|deprisa|ligero)|mas rapido|acelera la voz|ve mas rapido", text):
+        return _voice_intent(raw, context, "rate:+")
+    if re.search(r"habla (mas )?(despacio|lento)|mas lento|mas despacio|ve mas despacio", text):
+        return _voice_intent(raw, context, "rate:-")
+    if re.search(r"voz de (mujer|chica|femenina)|voz femenina|ponte voz de mujer", text):
+        return _voice_intent(raw, context, "gender:f")
+    if re.search(r"voz de (hombre|chico|masculina)|voz masculina|ponte voz de hombre", text):
+        return _voice_intent(raw, context, "gender:m")
+    if re.search(r"voz (mas )?(grave|profunda)|mas grave|habla mas grave", text):
+        return _voice_intent(raw, context, "pitch:-")
+    if re.search(r"voz (mas )?(aguda|fina)|mas aguda|habla mas agudo", text):
+        return _voice_intent(raw, context, "pitch:+")
+    if re.search(r"quita(r)? el (efecto )?robot|voz natural|sin (efecto )?robot|quita lo robotico|voz humana", text):
+        return _voice_intent(raw, context, "robot:off")
+    if re.search(r"pon(er)? el (efecto )?robot|voz robotica|modo robot|suena como (un )?robot", text):
+        return _voice_intent(raw, context, "robot:on")
+    m = re.search(r"(habla|responde|contesta)(me)? en (ingles|frances|italiano|aleman|portugues|espanol|castellano)|"
+                  r"cambia(te)? al (ingles|frances|italiano|aleman|portugues|espanol)", text)
+    if m:
+        w = m.group(m.lastindex)
+        code = {"ingles": "en", "frances": "fr", "italiano": "it", "aleman": "de",
+                "portugues": "pt", "espanol": "es", "castellano": "es"}.get(w)
+        if code:
+            return _voice_intent(raw, context, "lang:" + code)
+    if re.search(r"voz por defecto|restablece la voz|resetea la voz|voz de siempre", text):
+        return _voice_intent(raw, context, "reset")
+    return None
+
+
+def _match_seescreen(text, raw, context):
+    """Analizar visualmente lo que hay en pantalla (captura + vision), tipo Google Lens."""
+    if re.search(r"\bordenador\b|\bpc\b|sobremesa", text):
+        return None
+    if re.search(r"analiza (lo que veo|esto|la pantalla|esta pantalla|la imagen|la foto)|"
+                 r"que es esto|que estoy viendo|identifica esto|que hay en (la |mi )?pantalla|"
+                 r"escanea (esto|la pantalla)|analiza (esta )?(imagen|captura)|"
+                 r"que producto es (este|esto)", text):
+        return _dev_intent(raw, context, "jarvis-seescreen://go", "Analizar pantalla (Lens)")
+    return None
+
+
 def _match_readscreen(text, raw, context):
     """Resumir la pagina/pantalla del MOVIL (no el PC) y dejar el contenido en el hilo."""
     if re.search(r"\bordenador\b|\bpc\b|sobremesa", text):
@@ -1484,7 +1534,8 @@ def _parse_rules(transcript: str, platform: str = "auto") -> dict:
     for matcher in (_match_routine, _match_pc_shot, _match_pc_type, _match_pc_clip, _match_phoneclip, _match_pc_read,
                     _match_pc_control, _match_pc_open,
                     _match_claude, _match_football, _match_finance, _match_news,
-                    _match_server, _match_uptime, _match_devtools, _match_music, _match_readscreen,
+                    _match_server, _match_uptime, _match_devtools, _match_music,
+                    _match_seescreen, _match_readscreen, _match_voice,
                     _match_conversation, _match_followup, _match_translate,
                     _match_usage, _match_briefing,
                     _match_weather, _match_help, _match_calc, _match_torch, _match_battery, _match_camera, _match_find_phone,

@@ -214,8 +214,17 @@ async def vision(body: dict, _t=Depends(verify_token)):
         raise HTTPException(400, "imagen invalida")
     if not raw:
         raise HTTPException(400, "imagen vacia")
-    answer = read_image(raw, q)
-    return {"answer": answer or "No he podido analizar la imagen."}
+    answer = read_image(raw, q) or "No he podido analizar la imagen."
+    if (body or {}).get("remember"):
+        try:
+            from gemini import _load_hist, _save_hist
+            h = _load_hist()
+            h.append({"role": "user", "text": "[Esto es lo que estoy viendo en la pantalla del movil]"})
+            h.append({"role": "model", "text": answer})
+            _save_hist(h)
+        except Exception:
+            pass
+    return {"answer": answer}
 
 
 @app.post("/api/system/confirm")

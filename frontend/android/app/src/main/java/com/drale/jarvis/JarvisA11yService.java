@@ -147,6 +147,40 @@ public class JarvisA11yService extends AccessibilityService {
         }
     }
 
+    /** Captura la pantalla (API 30+) y devuelve un JPEG en base64 al callback, o null. */
+    public static void captureScreen(final java.util.function.Consumer<String> cb) {
+        final JarvisA11yService s = instance;
+        if (s == null || Build.VERSION.SDK_INT < 30) { cb.accept(null); return; }
+        try {
+            s.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, s.getMainExecutor(),
+                new android.accessibilityservice.AccessibilityService.TakeScreenshotCallback() {
+                    @Override
+                    public void onSuccess(android.accessibilityservice.AccessibilityService.ScreenshotResult r) {
+                        try {
+                            android.hardware.HardwareBuffer hb = r.getHardwareBuffer();
+                            android.graphics.Bitmap hw = android.graphics.Bitmap.wrapHardwareBuffer(hb, r.getColorSpace());
+                            android.graphics.Bitmap bmp = hw.copy(android.graphics.Bitmap.Config.ARGB_8888, false);
+                            hw.recycle();
+                            hb.close();
+                            int w = bmp.getWidth(), h = bmp.getHeight();
+                            float sc = Math.min(1f, 1280f / Math.max(w, h));
+                            if (sc < 1f) {
+                                android.graphics.Bitmap sm = android.graphics.Bitmap.createScaledBitmap(
+                                        bmp, Math.round(w * sc), Math.round(h * sc), true);
+                                bmp.recycle();
+                                bmp = sm;
+                            }
+                            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                            bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, bos);
+                            bmp.recycle();
+                            cb.accept(android.util.Base64.encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP));
+                        } catch (Exception e) { cb.accept(null); }
+                    }
+                    @Override public void onFailure(int code) { cb.accept(null); }
+                });
+        } catch (Exception e) { cb.accept(null); }
+    }
+
     private void collectText(AccessibilityNodeInfo n, StringBuilder sb) {
         if (n == null || sb.length() > 6500) return;
         CharSequence tx = n.getText();
