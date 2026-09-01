@@ -52,3 +52,5 @@ backend/.alert_state.json
 backend/.voice_config.json
 
 backend/.infra.json
+
+backend/.voiceprint.json

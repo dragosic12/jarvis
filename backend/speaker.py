@@ -13,10 +13,11 @@ import numpy as np
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 _PRINT_PATH = os.path.join(_DIR, ".voiceprint.json")
-_DEFAULT_THRESHOLD = 0.72
+_DEFAULT_THRESHOLD = 0.76
 
 _enc = None
 _lock = threading.Lock()
+_enroll_left = 0   # muestras que faltan por capturar en "modo aprendizaje"
 
 
 def _encoder():
@@ -102,6 +103,37 @@ def clear():
         os.remove(_PRINT_PATH)
     except OSError:
         pass
+
+
+def arm_enroll(n=3):
+    """Empieza el 'modo aprendizaje': las proximas n locuciones (mismo micro que
+    los comandos) se usan para crear la huella. Borra la huella anterior."""
+    global _enroll_left
+    clear()
+    _enroll_left = max(1, min(6, int(n)))
+    return _enroll_left
+
+
+def enroll_pending():
+    return _enroll_left
+
+
+def do_enroll(audio_bytes):
+    """Enrola una locucion capturada por el micro de comandos. Devuelve las que faltan."""
+    global _enroll_left
+    if _enroll_left <= 0:
+        return 0
+    emb = _embed_bytes(audio_bytes)
+    if emb is None:
+        return _enroll_left   # no valio (poca voz): que repita, no descuenta
+    d = _load()
+    embs = d.get("embs", [])
+    embs.append(emb.tolist())
+    d["embs"] = embs[-8:]
+    d.setdefault("threshold", _DEFAULT_THRESHOLD)
+    _save(d)
+    _enroll_left -= 1
+    return _enroll_left
 
 
 def verify(audio_bytes):

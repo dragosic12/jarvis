@@ -449,7 +449,10 @@ def _match_seescreen(text, raw, context):
     if re.search(r"analiza (lo que veo|esto|la pantalla|esta pantalla|la imagen|la foto)|"
                  r"que es esto|que estoy viendo|identifica esto|que hay en (la |mi )?pantalla|"
                  r"escanea (esto|la pantalla)|analiza (esta )?(imagen|captura)|"
-                 r"que producto es (este|esto)", text):
+                 r"que producto es (este|esto)|"
+                 r"explica(me)? (esta |la )?(imagen|pantalla|foto|captura)|"
+                 r"\bque ves\b|describe(me)? (la |esta )?(pantalla|imagen|foto)|"
+                 r"mira (la pantalla|esto|esta pantalla)|que (aparece|sale|pone) en (la )?pantalla", text):
         return _dev_intent(raw, context, "jarvis-seescreen://go", "Analizar pantalla (Lens)")
     return None
 

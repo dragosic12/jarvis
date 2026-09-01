@@ -114,26 +114,40 @@ def _team_speech(canonical):
 
 
 # ligas para "quien juega hoy" -> id TheSportsDB (eventsnextleague, mas completo que eventsday)
-_LEAGUES = (("4335", "La Liga"), ("4328", "Premier"), ("4480", "Champions"))
+# El tier gratis capa las listas por liga/dia; lo fiable es eventsnext POR EQUIPO.
+# Consultamos los grandes de LaLiga + Premier en paralelo y juntamos los de hoy.
+_BIG_TEAMS = ["133738", "133739", "133729", "133735", "133722", "133725", "133740",
+              "133727", "133724", "133937", "134700", "133613", "133602", "133604",
+              "133610", "133612"]
 
 
 def _today_matches():
+    import concurrent.futures
     today = _today()
-    found = []
-    for lid, _name in _LEAGUES:
+    found = {}  # idEvento -> (hora, nombre)  (dedup: un partido sale por sus 2 equipos)
+
+    def _one(tid):
         try:
-            d = _get(_BASE + "/eventsnextleague.php?id=" + lid)
-            for e in (d.get("events") or []):
+            d = _get(_BASE + "/eventsnext.php?id=" + tid)
+            for e in (d.get("events") or [])[:3]:
                 hhmm, edate = _when(e)
                 if edate == today:
-                    found.append((hhmm or "99:99", e.get("strEvent", "")))
+                    found[e.get("idEvent")] = (hhmm or "99:99", e.get("strEvent", ""))
         except Exception:
-            continue
+            pass
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_one, _BIG_TEAMS))
+    except Exception:
+        for t in _BIG_TEAMS:
+            _one(t)
+
     if not found:
-        return ("Hoy no hay partidos de La Liga, Premier ni Champions. "
+        return ("Hoy no juega ninguno de los equipos grandes de Liga o Premier. "
                 "Dime un equipo y te digo cuando juega.")
-    found.sort(key=lambda x: x[0])
-    partes = [nm + (" a las " + h if h != "99:99" else "") for h, nm in found[:6]]
+    items = sorted(found.values(), key=lambda x: x[0])
+    partes = [nm + (" a las " + h if h != "99:99" else "") for h, nm in items[:8]]
     return "Hoy juegan: " + "; ".join(partes) + "."
 
 

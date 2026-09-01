@@ -150,6 +150,23 @@ async def transcribe(audio: UploadFile = File(...), _t=Depends(verify_token)):
     data = await audio.read()
     if len(data) < 100:
         raise HTTPException(400, "Audio demasiado corto")
+    try:
+        from speaker import enroll_pending, do_enroll
+        if enroll_pending() > 0:
+            left = do_enroll(data)
+            return {"text": "", "enrolling": left}
+    except Exception:
+        pass
+    try:
+        import voicecfg
+        if voicecfg.load().get("only_my_voice"):
+            from speaker import is_enrolled, verify
+            if is_enrolled():
+                ok, _sim = verify(data)
+                if not ok:
+                    return {"text": "", "blocked": True}
+    except Exception:
+        pass
     result = transcribe_audio(data, audio.filename or "audio.webm")
     return result
 
@@ -217,14 +234,43 @@ async def vision(body: dict, _t=Depends(verify_token)):
     answer = read_image(raw, q) or "No he podido analizar la imagen."
     if (body or {}).get("remember"):
         try:
-            from gemini import _load_hist, _save_hist
-            h = _load_hist()
-            h.append({"role": "user", "text": "[Esto es lo que estoy viendo en la pantalla del movil]"})
-            h.append({"role": "model", "text": answer})
-            _save_hist(h)
+            from gemini import _save_hist
+            _save_hist([{"role": "user", "text": "[Esto es lo que estoy viendo en la pantalla del movil]"},
+                        {"role": "model", "text": answer}])
         except Exception:
             pass
     return {"answer": answer}
+
+
+@app.post("/api/voice_enroll")
+async def voice_enroll(audio: UploadFile = File(...), _t=Depends(verify_token)):
+    from speaker import enroll
+    data = await audio.read()
+    n = enroll(data)
+    return {"samples": n, "ok": n > 0}
+
+
+@app.post("/api/voice_clear")
+async def voice_clear(_t=Depends(verify_token)):
+    from speaker import clear
+    clear()
+    return {"ok": True}
+
+
+@app.post("/api/voice_enroll_start")
+async def voice_enroll_start(n: int = Query(3), _t=Depends(verify_token)):
+    from speaker import arm_enroll
+    return {"pending": arm_enroll(n)}
+
+
+@app.get("/api/voice_status")
+async def voice_status(_t=Depends(verify_token)):
+    from speaker import status, enroll_pending
+    import voicecfg
+    st = status()
+    st["only_my_voice"] = voicecfg.load().get("only_my_voice", False)
+    st["enrolling"] = enroll_pending()
+    return st
 
 
 @app.post("/api/system/confirm")

@@ -216,15 +216,13 @@ def summarize_screen(page_text: str) -> str:
         return "No he podido leer la pantalla."
     page_text = page_text[:6000]
     ctx = "[Esto es lo que estoy viendo ahora en la pantalla del movil]:\n" + page_text
-    hist = _load_hist()
-    contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
-    contents.append({"role": "user", "parts": [{"text": ctx + "\n\nResumeme brevemente esta pagina."}]})
+    # Contexto FRESCO: NO arrastrar paginas anteriores (evitaba "leer siempre la misma").
+    contents = [{"role": "user", "parts": [{"text": ctx + "\n\nResumeme brevemente esta pagina."}]}]
     txt = _gemini_call(contents, _SYS_SCREEN + _lang_hint(), max_tokens=350)
     if not txt:
         return "No he podido resumir la pagina ahora mismo."
-    hist.append({"role": "user", "text": ctx})
-    hist.append({"role": "model", "text": txt})
-    _save_hist(hist)
+    # El hilo pasa a contener SOLO esta pagina (para preguntas de seguimiento sobre ella).
+    _save_hist([{"role": "user", "text": ctx}, {"role": "model", "text": txt}])
     return txt
 
 
