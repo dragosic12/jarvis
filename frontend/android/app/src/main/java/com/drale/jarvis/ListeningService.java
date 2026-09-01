@@ -755,7 +755,8 @@ public class ListeningService extends Service {
         } catch (Exception ignored) {}
     }
 
-    /** Brillo de pantalla del sistema (0-255). Requiere permiso WRITE_SETTINGS. */
+    /** Brillo de pantalla del sistema. Usa el rango REAL del dispositivo (muchos
+     *  Realme/ColorOS no van de 0-255 sino 0-2047 etc.), no un 255 fijo. WRITE_SETTINGS. */
     private void setBrightness(String act) {
         try {
             if (!android.provider.Settings.System.canWrite(this)) {
@@ -770,16 +771,29 @@ public class ListeningService extends Service {
             android.provider.Settings.System.putInt(cr,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+
+            // Rango real del dispositivo (recursos internos de Android)
+            int maxB = 255, minB = 1;
+            try {
+                android.content.res.Resources sys = android.content.res.Resources.getSystem();
+                int idMax = sys.getIdentifier("config_screenBrightnessSettingMaximum", "integer", "android");
+                if (idMax != 0) { int m = sys.getInteger(idMax); if (m > 0) maxB = m; }
+                int idMin = sys.getIdentifier("config_screenBrightnessSettingMinimum", "integer", "android");
+                if (idMin != 0) { int m = sys.getInteger(idMin); if (m >= 0) minB = m; }
+            } catch (Exception ignored) {}
+            if (minB < 1) minB = 1;
+
             int cur = android.provider.Settings.System.getInt(cr,
-                    android.provider.Settings.System.SCREEN_BRIGHTNESS, 128);
+                    android.provider.Settings.System.SCREEN_BRIGHTNESS, maxB / 2);
+            int step = Math.max(20, maxB / 8);
             int val;
-            if ("max".equals(act)) val = 255;
-            else if ("min".equals(act)) val = 12;
-            else if ("up".equals(act)) val = Math.min(255, cur + 45);
-            else if ("down".equals(act)) val = Math.max(5, cur - 45);
+            if ("max".equals(act)) val = maxB;
+            else if ("min".equals(act)) val = minB;
+            else if ("up".equals(act)) val = Math.min(maxB, cur + step);
+            else if ("down".equals(act)) val = Math.max(minB, cur - step);
             else if (act.startsWith("set:")) {
-                int pct = Integer.parseInt(act.substring(4));
-                val = Math.max(5, Math.round(255 * pct / 100f));
+                int pct = Math.max(0, Math.min(100, Integer.parseInt(act.substring(4))));
+                val = minB + Math.round((maxB - minB) * pct / 100f);
             } else return;
             android.provider.Settings.System.putInt(cr,
                     android.provider.Settings.System.SCREEN_BRIGHTNESS, val);
