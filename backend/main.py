@@ -242,6 +242,18 @@ async def vision(body: dict, _t=Depends(verify_token)):
     return {"answer": answer}
 
 
+@app.get("/api/voice_config")
+async def get_voice_config(_t=Depends(verify_token)):
+    import voicecfg
+    return voicecfg.load()
+
+
+@app.post("/api/voice_config")
+async def set_voice_config(body: dict, _t=Depends(verify_token)):
+    import voicecfg
+    return voicecfg.save(body or {})
+
+
 @app.post("/api/voice_enroll")
 async def voice_enroll(audio: UploadFile = File(...), _t=Depends(verify_token)):
     from speaker import enroll
