@@ -104,6 +104,43 @@ def execute_action(intent: dict, target_platform: str = "linux") -> dict:
             return {"success": True, "message": txt,
                     "data": {"type": "spoken_response", "text": txt}}
 
+        elif action_type == "voice_cfg":
+            import voicecfg
+            d = intent.get("action_value", "")
+            cur = voicecfg.load()
+            _say = {
+                "rate:+": "Hablo mas rapido.", "rate:-": "Hablo mas despacio.",
+                "pitch:-": "Voz mas grave.", "pitch:+": "Voz mas aguda.",
+                "gender:f": "Vale, voz de mujer.", "gender:m": "Vale, voz de hombre.",
+                "robot:off": "Efecto robot quitado, voz natural.", "robot:on": "Efecto robot activado.",
+                "reset": "Voz restablecida.",
+                "brevity:corto": "Vale, respuestas mas breves.",
+                "brevity:normal": "Respuestas de longitud normal.",
+                "brevity:largo": "Vale, respuestas mas detalladas.",
+                "lang:en": "Okay, I will speak in English now.",
+                "lang:fr": "D accord, je vais parler en francais.",
+                "lang:it": "Va bene, adesso parlo in italiano.",
+                "lang:de": "Okay, ich spreche jetzt Deutsch.",
+                "lang:pt": "Certo, agora vou falar portugues.",
+                "lang:es": "Vale, vuelvo al espanol.",
+            }
+            if d == "rate:+": patch = {"rate": min(80, cur["rate"] + 15)}
+            elif d == "rate:-": patch = {"rate": max(-50, cur["rate"] - 15)}
+            elif d == "pitch:+": patch = {"pitch": min(40, cur["pitch"] + 8)}
+            elif d == "pitch:-": patch = {"pitch": max(-40, cur["pitch"] - 8)}
+            elif d == "gender:f": patch = {"gender": "f"}
+            elif d == "gender:m": patch = {"gender": "m"}
+            elif d == "robot:off": patch = {"robot": False}
+            elif d == "robot:on": patch = {"robot": True}
+            elif d == "reset": patch = dict(voicecfg.DEFAULT)
+            elif d.startswith("lang:"): patch = {"lang": d.split(":", 1)[1]}
+            elif d.startswith("brevity:"): patch = {"brevity": d.split(":", 1)[1]}
+            else: patch = {}
+            voicecfg.save(patch)
+            txt = _say.get(d, "Hecho.")
+            return {"success": True, "message": txt,
+                    "data": {"type": "spoken_response", "text": txt}}
+
         elif action_type == "briefing":
             txt = _handle_briefing()
             return {"success": True, "message": txt,

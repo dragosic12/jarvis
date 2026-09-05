@@ -154,6 +154,16 @@ export default function Settings({ authFetch }) {
             </button>
           </div>
 
+          <label className="text-sm font-display text-white/90 block mt-4 mb-1">Longitud de respuestas <span className="text-jarvis-muted">(más corta = contesta antes)</span></label>
+          <div className="flex gap-2">
+            {[['corto', 'Breve'], ['normal', 'Normal'], ['largo', 'Detallada']].map(([v, n]) => (
+              <button key={v} onClick={() => updVc({ brevity: v })}
+                className={`flex-1 rounded-lg py-2 text-sm font-display border ${(vc.brevity || 'normal') === v ? 'bg-jarvis-accent/20 text-jarvis-accent border-jarvis-accent/40' : 'bg-jarvis-card/60 text-jarvis-muted border-white/10'}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+
           <button onClick={testVoice}
             className="w-full mt-4 bg-jarvis-card/60 text-jarvis-muted border border-white/10 rounded-xl py-2.5 text-sm font-display tracking-wide">
             🔊 Probar voz

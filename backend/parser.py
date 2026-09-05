@@ -412,7 +412,17 @@ def _voice_intent(raw, context, directive):
 
 
 def _match_voice(text, raw, context):
-    """Ajustes de voz e idioma por comando (velocidad, genero, tono, robot, idioma)."""
+    """Ajustes de voz e idioma por comando (brevedad, velocidad, genero, tono, robot, idioma)."""
+    # Brevedad de respuestas (mas corto = responde antes). ANTES que el ritmo de voz.
+    if re.search(r"se (mas )?(breve|conciso|corto)|respuestas? (mas )?(cortas?|breves?)|"
+                 r"responde (mas )?(rapido|corto|breve|directo)|contesta mas (rapido|corto|breve)|"
+                 r"mas directo|resume mas|menos rollo", text):
+        return _voice_intent(raw, context, "brevity:corto")
+    if re.search(r"respuestas? (mas )?(largas?|detalladas?)|con mas detalle|explica(me)? mas|"
+                 r"mas detallad|extiendete|respuestas? completas", text):
+        return _voice_intent(raw, context, "brevity:largo")
+    if re.search(r"respuestas? normales|longitud normal|respuestas de siempre", text):
+        return _voice_intent(raw, context, "brevity:normal")
     if re.search(r"habla (mas )?(rapido|deprisa|ligero)|mas rapido|acelera la voz|ve mas rapido", text):
         return _voice_intent(raw, context, "rate:+")
     if re.search(r"habla (mas )?(despacio|lento)|mas lento|mas despacio|ve mas despacio", text):

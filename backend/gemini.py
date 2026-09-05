@@ -33,6 +33,28 @@ def _lang_hint():
             + name + ".")
 
 
+def _brevity():
+    try:
+        import voicecfg
+        return voicecfg.load().get("brevity", "normal")
+    except Exception:
+        return "normal"
+
+
+def _brevity_hint():
+    """Ajusta la longitud de la respuesta (mas corta = responde antes)."""
+    b = _brevity()
+    if b == "corto":
+        return " Responde en UNA sola frase, lo mas corto y directo posible, sin rodeos."
+    if b == "largo":
+        return " Puedes extenderte algo mas si la pregunta lo pide."
+    return ""
+
+
+def _brevity_tokens(default=400):
+    return {"corto": 90, "largo": 700}.get(_brevity(), default)
+
+
 _CMDS_HELP = """Ordenes que Jarvis ejecuta (traduce a UNA de estas, rellenando lo que falte):
 - enciende la linterna / apaga la linterna
 - sube el volumen / baja el volumen / silencio / modo vibracion / pon el volumen al 30
@@ -155,7 +177,8 @@ def ask_gemini(question: str, timeout: int = 18, remember: bool = True) -> str:
     hist = _load_hist() if remember else []
     contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
     contents.append({"role": "user", "parts": [{"text": question}]})
-    txt = _gemini_call(contents, _SYS + _lang_hint(), timeout=timeout)
+    txt = _gemini_call(contents, _SYS + _lang_hint() + _brevity_hint(), timeout=timeout,
+                       max_tokens=_brevity_tokens())
     if txt and remember:
         hist.append({"role": "user", "text": question})
         hist.append({"role": "model", "text": txt})
@@ -184,7 +207,7 @@ def smart_reply(utterance: str, contacts=None):
     if not utterance:
         return ("", "")
     contacts_line = ("Contactos: " + ", ".join(contacts) + ".\n") if contacts else ""
-    sys = (_SYS + _lang_hint() + "\n\nIMPORTANTE: si el mensaje del usuario es una ORDEN para el movil o el "
+    sys = (_SYS + _lang_hint() + _brevity_hint() + "\n\nIMPORTANTE: si el mensaje del usuario es una ORDEN para el movil o el "
            "PC (no una pregunta ni charla), responde SOLO con 'CMD: ' seguido de la orden "
            "canonica equivalente de esta lista (rellenando contacto/app/valor) y NADA mas:\n"
            + _CMDS_HELP + "\n" + contacts_line +
@@ -192,7 +215,7 @@ def smart_reply(utterance: str, contacts=None):
     hist = _load_hist()
     contents = [{"role": t["role"], "parts": [{"text": t["text"]}]} for t in hist]
     contents.append({"role": "user", "parts": [{"text": utterance}]})
-    txt = _gemini_call(contents, sys, max_tokens=400)
+    txt = _gemini_call(contents, sys, max_tokens=_brevity_tokens())
     if not txt:
         return ("", "")
     if txt.strip().upper().startswith("CMD:"):

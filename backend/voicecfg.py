@@ -6,7 +6,7 @@ import json
 _PATH = os.path.join(os.path.dirname(__file__), ".voice_config.json")
 
 DEFAULT = {"lang": "es", "gender": "m", "rate": 0, "pitch": -18, "robot": True,
-           "only_my_voice": False}
+           "only_my_voice": False, "brevity": "normal"}
 
 # voces edge-tts por idioma: (masculina, femenina)
 VOICES = {
@@ -37,6 +37,8 @@ def load():
         d["rate"], d["pitch"] = 0, -18
     d["robot"] = bool(d["robot"])
     d["only_my_voice"] = bool(d.get("only_my_voice", False))
+    if d.get("brevity") not in ("corto", "normal", "largo"):
+        d["brevity"] = "normal"
     if d["lang"] not in VOICES:
         d["lang"] = "es"
     if d["gender"] not in ("m", "f"):
