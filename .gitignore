@@ -2,6 +2,7 @@
 *.env
 .env.*
 backend/.groq_key
+backend/.anthropic_key
 backend/.claude_voice_session
 android-keys/
 **/keystore.properties

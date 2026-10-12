@@ -1494,7 +1494,18 @@ def parse_intent(transcript: str, platform: str = "auto") -> dict:
                 "command_id": None, "description": "Respuesta", "platform": "all",
                 "query": text, "context": platform, "silent": False}
 
-    # Ultimo recurso (Gemini fallo): pregunta clasica
+    # Ultimo recurso antes de tratarlo como pregunta normal: agente LangChain
+    # con tools (ver langchain_fallback.py). Si no resuelve nada util, sigue
+    # exactamente el comportamiento de siempre.
+    try:
+        from langchain_fallback import resolver_con_agente
+        r_agente = resolver_con_agente(text, transcript, platform)
+        if r_agente:
+            return r_agente
+    except Exception:
+        pass
+
+    # Ultimo recurso (Gemini fallo, agente no resolvio): pregunta clasica
     return {"matched": True, "raw_text": transcript, "category": "pregunta",
             "trigger": "gemini", "action_type": "question", "action_value": text,
             "command_id": None, "description": "Pregunta", "platform": "all",
