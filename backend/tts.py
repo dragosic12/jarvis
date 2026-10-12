@@ -19,19 +19,20 @@ import voicecfg
 # Voz masculina, espanol de Espana. Alternativas: es-MX-JorgeNeural (chico, MX),
 # es-ES-ElviraNeural (chica). Configurable por env o por query ?voice=
 DEFAULT_VOICE = os.environ.get("JARVIS_TTS_VOICE", "es-ES-AlvaroNeural")
-# Tono un poco mas grave (mas "maquina"). +0Hz = natural.
-PITCH = os.environ.get("JARVIS_TTS_PITCH", "-18Hz")
-# Toque robotico via ffmpeg. JARVIS_TTS_ROBOT=0 lo desactiva; JARVIS_TTS_ROBOT_AF
-# permite afinar la cadena de filtros sin tocar el codigo.
+# Tono ligeramente mas grave (calmado, autoritario, NO caricaturesco). +0Hz = natural.
+PITCH = os.environ.get("JARVIS_TTS_PITCH", "-8Hz")
+# Toque "JARVIS de pelicula": nitido y con un leve brillo digital, SIN el buzz de
+# robot barato (nada de tremolo/ring-mod ni flanger fuerte). JARVIS_TTS_ROBOT=0
+# lo desactiva; JARVIS_TTS_ROBOT_AF permite afinar la cadena sin tocar el codigo.
 ROBOT = os.environ.get("JARVIS_TTS_ROBOT", "1") != "0"
 ROBOT_AF = os.environ.get(
     "JARVIS_TTS_ROBOT_AF",
-    # tremolo ~62Hz = bandas laterales tipo ring-mod (lo mas "robot") sin perder
-    # inteligibilidad; flanger = brillo metalico; band-limit = timbre de "aparato".
-    "tremolo=f=62:d=0.55,"
-    "flanger=delay=2:depth=4:regen=9:speed=0.5,"
-    "highpass=f=110,lowpass=f=7000,"
-    "volume=2.0",
+    # chorus sutil = textura "sintetizada" sin sonar roto; treble = articulacion
+    # nitida; band-limit suave = quita barro grave y aspereza aguda.
+    "chorus=0.5:0.9:50:0.4:0.25:2,"
+    "treble=g=4,"
+    "highpass=f=90,lowpass=f=9500,"
+    "volume=1.6",
 )
 MAX_LEN = 600  # tope de caracteres por peticion
 
