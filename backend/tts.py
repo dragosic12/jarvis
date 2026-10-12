@@ -12,6 +12,7 @@ import hashlib
 import asyncio
 
 import edge_tts
+from gtts import gTTS
 
 # Voz masculina, espanol de Espana. Alternativas: es-MX-JorgeNeural (chico, MX),
 # es-ES-ElviraNeural (chica). Configurable por env o por query ?voice=
@@ -58,6 +59,15 @@ async def _robotize(src: str, dst: str) -> bool:
         return False
 
 
+async def _synthesize_gtts_fallback(text: str, dst_path: str) -> None:
+    """Respaldo cuando edge-tts (Microsoft) esta caido. gTTS es sincrono y pega
+    a un servicio distinto (Google Translate), asi que corre en un hilo aparte
+    para no bloquear el event loop."""
+    def _run():
+        gTTS(text=text, lang="es").save(dst_path)
+    await asyncio.to_thread(_run)
+
+
 async def synthesize(text: str, voice: str = None) -> str:
     """Devuelve la ruta a un MP3 con la frase hablada. Cachea; None si texto vacio."""
     text = (text or "").strip()
@@ -71,8 +81,30 @@ async def synthesize(text: str, voice: str = None) -> str:
         return path
 
     raw = path + ".raw.mp3"
-    communicate = edge_tts.Communicate(text, voice, pitch=PITCH)
-    await communicate.save(raw)
+    # edge-tts pega contra un endpoint no oficial de Microsoft que a veces
+    # devuelve 403 (bloqueo intermitente, no siempre se arregla reintentando
+    # rapido). Un par de reintentos cortos, y si sigue caido, fallback a gTTS
+    # (servicio de Google, motor distinto) para no quedarnos mudos.
+    last_err = None
+    for intento, espera in enumerate((0, 0.8, 1.6)):
+        if espera:
+            await asyncio.sleep(espera)
+        try:
+            communicate = edge_tts.Communicate(text, voice, pitch=PITCH)
+            await communicate.save(raw)
+            if os.path.exists(raw) and os.path.getsize(raw) > 0:
+                last_err = None
+                break
+        except Exception as e:
+            last_err = e
+
+    if last_err is not None:
+        try:
+            await _synthesize_gtts_fallback(text, raw)
+            last_err = None
+        except Exception as e2:
+            raise RuntimeError(f"sintesis fallo (edge-tts: {last_err}; gtts: {e2})")
+
     if not os.path.exists(raw) or os.path.getsize(raw) == 0:
         raise RuntimeError("sintesis vacia")
 
