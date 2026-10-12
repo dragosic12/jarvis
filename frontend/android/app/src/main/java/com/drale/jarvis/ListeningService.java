@@ -405,9 +405,27 @@ public class ListeningService extends Service {
 
     // ---- Backend ----
 
+    private long lastAuthWarnAt = 0;
+
+    /** Token caducado/invalido (401): antes se tragaba en silencio (texto vacio,
+     * indistinguible de "no dijiste nada"). Ahora se detecta aparte y avisa. */
+    private static class AuthExpiredException extends Exception {}
+
     private String safeTranscribe(byte[] wav) {
-        try { return transcribe(wav); }
-        catch (Exception e) { return null; }
+        try {
+            return transcribe(wav);
+        } catch (AuthExpiredException e) {
+            long now = System.currentTimeMillis();
+            if (now - lastAuthWarnAt > 60000) {   // avisa como mucho 1 vez/minuto
+                lastAuthWarnAt = now;
+                beep(220, 400);
+                speak("Tu sesion ha caducado. Abre la app e inicia sesion de nuevo.");
+                sendLog("(sin token)", "sesion caducada");
+            }
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String transcribe(byte[] wav) throws Exception {
@@ -424,6 +442,7 @@ public class ListeningService extends Service {
         out.write(wav);
         out.writeBytes("\r\n--" + boundary + "--\r\n");
         out.flush(); out.close();
+        if (c.getResponseCode() == 401) throw new AuthExpiredException();
         String body = readBody(c);
         return new JSONObject(body).optString("text", "");
     }
@@ -506,6 +525,7 @@ public class ListeningService extends Service {
             OutputStream out = c.getOutputStream();
             out.write(payload.toString().getBytes("UTF-8"));
             out.flush(); out.close();
+            if (c.getResponseCode() == 401) throw new AuthExpiredException();
             JSONObject resp = new JSONObject(readBody(c));
             JSONObject result = resp.optJSONObject("result");
             JSONObject data = (result != null) ? result.optJSONObject("data") : null;
@@ -535,6 +555,14 @@ public class ListeningService extends Service {
                 if (!msg.isEmpty() && msg.length() < 200) speak(msg);
             }
             sendLog(text, "ejecutado");
+        } catch (AuthExpiredException e) {
+            long now = System.currentTimeMillis();
+            if (now - lastAuthWarnAt > 60000) {
+                lastAuthWarnAt = now;
+                beep(220, 400);
+                speak("Tu sesion ha caducado. Abre la app e inicia sesion de nuevo.");
+            }
+            sendLog(text, "sesion caducada");
         } catch (Exception e) {
             beep(330, 250);
             speak("Ha habido un error de conexion");

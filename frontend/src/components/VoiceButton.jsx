@@ -523,7 +523,8 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
                 e.status === 'ejecutado' ? 'text-jarvis-success'
                   : e.status === 'armado' ? 'text-jarvis-accent'
                     : e.status === 'no reconocido' ? 'text-yellow-400'
-                      : 'text-jarvis-muted'
+                      : e.status === 'sesion caducada' ? 'text-jarvis-danger'
+                        : 'text-jarvis-muted'
               }>[{e.status}]</span>{' '}
               <span className="text-white/80">"{e.text}"</span>
             </p>
