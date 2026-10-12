@@ -525,6 +525,13 @@ public class ListeningService extends Service {
     }
 
     private void runCommandText(String text) {
+        // Si el comando tarda (p.ej. una captura de pantalla via SSH al PC),
+        // un pitido corto a los 1.2s avisa de que sigue trabajando en vez de
+        // dejar un silencio muerto.
+        final java.util.Timer thinkingTimer = new java.util.Timer();
+        thinkingTimer.schedule(new java.util.TimerTask() {
+            @Override public void run() { beep(440, 90); }
+        }, 1200);
         try {
             HttpURLConnection c = (HttpURLConnection) new URL(apiBase + "/api/command/text").openConnection();
             c.setConnectTimeout(8000); c.setReadTimeout(30000);
@@ -578,6 +585,8 @@ public class ListeningService extends Service {
             beep(330, 250);
             speak("Ha habido un error de conexion");
             sendLog(text, "error de red");
+        } finally {
+            thinkingTimer.cancel();
         }
     }
 
