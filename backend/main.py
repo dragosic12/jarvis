@@ -181,11 +181,13 @@ async def process_command(audio: UploadFile = File(...), platform: str = Query("
     # 1. Transcribir
     transcript = transcribe_audio(data, audio.filename or "audio.webm")
 
-    # 2. Parsear intencion
-    intent = parse_intent(transcript["text"], platform=platform)
-
-    # 3. Ejecutar
-    result = execute_action(intent, target_platform=platform)
+    # 2. Parsear intencion (con soporte de comandos encadenados, igual que /api/command/text)
+    pieces = _split_chain(transcript["text"])
+    if len(pieces) > 1:
+        intent, result = _execute_chain(pieces, platform)
+    else:
+        intent = parse_intent(transcript["text"], platform=platform)
+        result = execute_action(intent, target_platform=platform)
 
     return {
         "transcript": transcript,
@@ -194,13 +196,78 @@ async def process_command(audio: UploadFile = File(...), platform: str = Query("
     }
 
 
+import re as _re_chain
+
+# Conectores EXPLICITOS de encadenado (NO se parte por un simple " y " suelto,
+# eso rompería frases normales como "busca gatos y perros" o mensajes de
+# WhatsApp que contengan "y"). Solo frases inequivocas de "ahora esto, luego
+# lo otro".
+_CHAIN_RE = _re_chain.compile(
+    r"\s+y\s+(?:cuando\s+termines|luego|despu[eé]s(?:\s+de\s+eso)?)\s*,?\s+",
+    _re_chain.IGNORECASE,
+)
+
+
+def _split_chain(text: str) -> list:
+    parts = [p.strip() for p in _CHAIN_RE.split(text) if p.strip()]
+    return parts if len(parts) > 1 else [text]
+
+
+def _execute_chain(pieces: list, platform: str) -> dict:
+    """Ejecuta cada trozo con el pipeline normal (parse_intent + execute_action)
+    y combina las respuestas en una sola. Si algun trozo abre una app/url
+    (open_url o device_action), esa es la accion "fisica" que ejecuta el
+    cliente -- el resto de trozos se habla como texto combinado, pero si hay
+    una accion fisica en la cadena el cliente no puede hablar Y abrir una app
+    a la vez en una sola respuesta, asi que esa parte queda en el mensaje
+    (se ve en el log) aunque no se vocalice."""
+    intents = []
+    mensajes = []
+    accion_fisica = None
+    for pieza in pieces:
+        it = parse_intent(pieza, platform=platform)
+        res = execute_action(it, target_platform=platform)
+        intents.append(it)
+        data = (res or {}).get("data") or {}
+        tipo = data.get("type", "")
+        if tipo in ("open_url", "device_action") and accion_fisica is None:
+            accion_fisica = data
+        msg = data.get("text") or (res or {}).get("message") or ""
+        if msg:
+            mensajes.append(msg.rstrip("."))
+
+    combinado = ". ".join(mensajes) + ("." if mensajes else "")
+    if not combinado:
+        combinado = "Hecho."
+
+    if accion_fisica:
+        result = {"success": True, "message": combinado, "data": accion_fisica}
+    else:
+        result = {"success": True, "message": combinado,
+                   "data": {"type": "spoken_response", "text": combinado}}
+
+    intent = {"matched": True, "raw_text": " / ".join(pieces), "category": "cadena",
+              "trigger": "cadena", "action_type": "chain", "action_value": None,
+              "command_id": None, "description": f"{len(pieces)} comandos encadenados",
+              "platform": "all", "query": None, "context": platform, "silent": False,
+              "chain": intents}
+    return intent, result
+
+
 @app.post("/api/command/text")
 async def process_text_command(body: dict, _t=Depends(verify_token)):
-    """Procesar un comando por texto (sin audio)."""
+    """Procesar un comando por texto (sin audio). Soporta encadenar varios
+    comandos en una frase con conectores explicitos ("... y luego ...",
+    "... y cuando termines ...", "... y despues ...")."""
     text = body.get("text", "").strip()
     platform = body.get("platform", "linux")
     if not text:
         raise HTTPException(400, "Texto vacio")
+
+    pieces = _split_chain(text)
+    if len(pieces) > 1:
+        intent, result = _execute_chain(pieces, platform)
+        return {"intent": intent, "result": result}
 
     intent = parse_intent(text, platform=platform)
     result = execute_action(intent, target_platform=platform)
