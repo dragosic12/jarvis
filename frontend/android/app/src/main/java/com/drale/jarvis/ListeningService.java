@@ -222,6 +222,16 @@ public class ListeningService extends Service {
                         if (android.media.audiofx.NoiseSuppressor.isAvailable())
                             android.media.audiofx.NoiseSuppressor.create(sid).setEnabled(true);
                     } catch (Exception ignored) {}
+                    // En algunos moviles, activar el cancelador de eco sobre una sesion
+                    // VOICE_RECOGNITION empuja al sistema a enrutar el audio como si
+                    // fuera una llamada (volumen bajo estilo auricular). Forzar modo
+                    // normal explicitamente para que la reproduccion (TTS, musica, etc.)
+                    // no se quede silenciada mientras Jarvis escucha.
+                    try {
+                        AudioManager amNorm = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                        if (amNorm.getMode() != AudioManager.MODE_NORMAL)
+                            amNorm.setMode(AudioManager.MODE_NORMAL);
+                    } catch (Exception ignored) {}
                     recorder.startRecording();
                 }
 
@@ -1277,6 +1287,7 @@ public class ListeningService extends Service {
         // bajo, subirlo a un nivel audible antes de hablar (si no, Jarvis "no habla")
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (am.getMode() != AudioManager.MODE_NORMAL) am.setMode(AudioManager.MODE_NORMAL);
             int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
             int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
             if (cur < Math.max(1, max / 4)) {
