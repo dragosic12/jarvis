@@ -137,6 +137,7 @@ def resolver_con_agente(texto: str, raw: str, context: str) -> dict:
         return None
     if not texto:
         return None
+    print(f"[langchain_fallback] GASTO API ANTHROPIC (Haiku) -- texto: {texto[:60]!r}", flush=True)
     try:
         resultado = _agente().invoke(
             {"messages": [{"role": "user", "content": texto}]},
