@@ -58,14 +58,25 @@ def _tempo(rate: int) -> float:
 
 
 async def _robotize(src: str, dst: str, af: str = ROBOT_AF) -> bool:
-    """Aplica el efecto robotico con ffmpeg. True si ok."""
+    """Aplica el efecto robotico con ffmpeg. True si ok.
+
+    dst suele terminar en ".part" (escritura atomica: se renombra al nombre
+    final solo si todo fue bien) -- ffmpeg elige el formato de salida por la
+    EXTENSION del archivo si no se le dice lo contrario, y ".part" no es una
+    extension reconocida, asi que fallaba SIEMPRE en silencio (DEVNULL se
+    tragaba el error) y el audio se servia crudo, sin atempo ni efectos.
+    "-f mp3" fuerza el formato explicitamente, sin depender del nombre.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffmpeg", "-y", "-i", src, "-af", af,
-            "-codec:a", "libmp3lame", "-q:a", "4", dst,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            "-codec:a", "libmp3lame", "-q:a", "4", "-f", "mp3", dst,
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
         )
-        await proc.wait()
+        _, serr = await proc.communicate()
+        if proc.returncode != 0:
+            import sys as _sys
+            print(f"[tts] ffmpeg fallo (rc={proc.returncode}): {serr[-300:].decode(errors='replace')}", file=_sys.stderr)
         return proc.returncode == 0 and os.path.exists(dst) and os.path.getsize(dst) > 0
     except Exception:
         return False
