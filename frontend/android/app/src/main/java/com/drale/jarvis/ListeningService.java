@@ -319,6 +319,7 @@ public class ListeningService extends Service {
             double sum = 0;
             for (int i = 0; i < n; i++) { double s = frame[i] / 32768.0; sum += s * s; }
             double rms = Math.sqrt(sum / n);
+            BackgroundListeningPlugin.sendLevel((float) Math.min(rms * 8, 1.0));
 
             // VAD sobre la senal cruda; el buffer guarda PCM crudo. La
             // amplificacion se hace al final, normalizando por pico (wrapWav).

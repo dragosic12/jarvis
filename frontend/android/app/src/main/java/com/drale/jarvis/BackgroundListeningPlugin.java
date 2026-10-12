@@ -47,6 +47,14 @@ public class BackgroundListeningPlugin extends Plugin {
         instance.notifyListeners("log", data);
     }
 
+    /** Nivel de audio en vivo (0..1), para la barra de sonido real en la UI web. */
+    public static void sendLevel(float level) {
+        if (instance == null) return;
+        JSObject data = new JSObject();
+        data.put("level", level);
+        instance.notifyListeners("level", data);
+    }
+
     @PluginMethod
     public void start(PluginCall call) {
         Intent intent = new Intent(getContext(), ListeningService.class);

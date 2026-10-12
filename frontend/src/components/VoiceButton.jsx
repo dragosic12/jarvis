@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { API_BASE } from '../config'
 import { beepStart, beepStop, beepError, isMobile, getAudioContext, getSupportedMimeType, isSpeaking } from '../utils/audio'
 import { isNativeApp, ensureOverlayPermission, ensureBatteryUnrestricted, onAppResume,
-         startNativeListening, stopNativeListening, onNativeLog } from '../utils/native'
+         startNativeListening, stopNativeListening, onNativeLog, onNativeLevel } from '../utils/native'
 
 const SILENCE_THRESHOLD = 0.010   // sensibilidad: mas bajo = oye voz mas floja
 const SILENCE_TIMEOUT = 1200      // ms de silencio tras voz para cortar segmento
@@ -57,6 +57,7 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
   const [log, setLog] = useState([])   // ultimas transcripciones oidas
   const volumeRef = useRef(0)
   const ringRef = useRef(null)
+  const barRefs = useRef([])
   const sessionRef = useRef(0)       // generacion: invalida bucles/segmentos viejos
   const streamRef = useRef(null)
   const sourceRef = useRef(null)
@@ -89,11 +90,19 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
     if (state !== 'wake' && state !== 'armed') return
     let raf
     const animate = () => {
+      const v = volumeRef.current
       if (ringRef.current) {
-        const v = volumeRef.current
         ringRef.current.style.transform = `scale(${1 + v * 0.6})`
         ringRef.current.style.opacity = 0.3 + v * 0.5
       }
+      const t = performance.now() / 1000
+      barRefs.current.forEach((el, i) => {
+        if (!el) return
+        // variacion por barra para que no suban todas a la vez (efecto ecualizador)
+        const wobble = 0.65 + 0.35 * Math.sin(t * 6 + i * 0.8)
+        const h = Math.max(0.08, Math.min(1, v * wobble))
+        el.style.transform = `scaleY(${h})`
+      })
       raf = requestAnimationFrame(animate)
     }
     raf = requestAnimationFrame(animate)
@@ -383,7 +392,8 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
       startNativeListening(API_BASE, token)
       setSt('wake')
       const off = onNativeLog(({ text, status }) => addLog(text, status))
-      return () => { off() }
+      const offLevel = onNativeLevel(({ level }) => { volumeRef.current = level })
+      return () => { off(); offLevel() }
     }
     if (continuous) {
       // Navegador/PWA: bucle de escucha en JS (solo con la pagina visible)
@@ -447,6 +457,20 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
 
   return (
     <div className="flex flex-col items-center gap-3">
+      {(state === 'wake' || state === 'armed') && (
+        <div className="flex items-end justify-center gap-[3px] h-8" aria-hidden="true">
+          {Array.from({ length: 16 }).map((_, i) => (
+            <div
+              key={i}
+              ref={(el) => { barRefs.current[i] = el }}
+              className={`w-[3px] h-full rounded-full origin-bottom ${
+                state === 'armed' ? 'bg-red-400' : 'bg-jarvis-accent'
+              }`}
+              style={{ transform: 'scaleY(0.08)', transition: 'transform 0.05s linear' }}
+            />
+          ))}
+        </div>
+      )}
       <div className="relative w-24 h-24">
         {(state === 'wake' || state === 'armed') && (
           <>

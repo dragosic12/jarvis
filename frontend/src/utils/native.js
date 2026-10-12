@@ -157,3 +157,10 @@ export function onNativeLog(callback) {
   const handle = bg.addListener('log', (e) => callback(e))
   return () => { handle?.remove?.() }
 }
+
+export function onNativeLevel(callback) {
+  const bg = window.Capacitor?.Plugins?.BackgroundListening
+  if (!bg) return () => {}
+  const handle = bg.addListener('level', (e) => callback(e))
+  return () => { handle?.remove?.() }
+}
