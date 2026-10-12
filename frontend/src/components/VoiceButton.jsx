@@ -471,6 +471,7 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
           ))}
         </div>
       )}
+      {!(isNativeApp() && continuous) && (
       <div className="relative w-24 h-24">
         {(state === 'wake' || state === 'armed') && (
           <>
@@ -525,6 +526,7 @@ export default function VoiceButton({ onResult, authFetch, continuous }) {
           )}
         </button>
       </div>
+      )}
 
       <p className="text-xs font-display tracking-wider h-4 flex items-center gap-1">
         {state === 'processing' ? (
