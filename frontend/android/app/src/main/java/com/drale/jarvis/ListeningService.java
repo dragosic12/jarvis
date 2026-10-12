@@ -81,7 +81,7 @@ public class ListeningService extends Service {
     // se la come: "ya vais") + d/t opcional ("yardvis") + v/b + vocal opcional
     // ("vais") + i + s. Pilla jarvis, yarvis, gervis, jarbis, yardvis, ya vais...
     private static final Pattern WAKE_RE =
-            Pattern.compile("^(?:ch|[jyghx])[ae]+r*[dt]?[bvw]+[ae]*i+[sz]*$");
+            Pattern.compile("^(?:ch|[jyghx])?[ae]+r*[dt]?[bvw]+[ae]*i+[sz]*$");
 
     private PowerManager.WakeLock wakeLock;
     private volatile boolean running = false;
